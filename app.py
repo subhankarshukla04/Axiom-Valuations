@@ -1,38 +1,87 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import json
 from datetime import datetime
 import io
 import csv
-import logging
 from pydantic import ValidationError
 from models import CompanyCreate, CompanyUpdate
 from valuation_service import ValuationService
 from data_integrator import DataIntegrator, fetch_company_by_ticker
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Phase 0: Import new modules
+from config import Config, get_config
+from auth import init_auth, login_required, role_required, current_user
+from logger import setup_app_logger, get_logger, log_api_request, log_valuation
 
+# Initialize Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
+
+# Load configuration
+config = get_config()
+app.config.from_object(config)
+
+# Initialize logging (replaces old logging.basicConfig)
+logger = setup_app_logger(app, log_level=config.LOG_LEVEL)
+
+# Initialize authentication
+init_auth(app)
 
 # Initialize services
 valuation_service = ValuationService()
 data_integrator = DataIntegrator()
 
+# Database connection helper (supports both PostgreSQL and SQLite)
+def get_db_connection():
+    """Get database connection based on configuration"""
+    if Config.DATABASE_TYPE == 'postgresql':
+        conn = psycopg2.connect(
+            Config.get_db_connection_string(),
+            cursor_factory=RealDictCursor
+        )
+        # Add a marker so we can detect PostgreSQL connections
+        conn._is_postgresql = True
+        return conn
+    else:
+        # Fallback to SQLite
+        conn = sqlite3.connect(Config.SQLITE_DB)
+        conn.row_factory = sqlite3.Row
+        conn._is_postgresql = False
+        return conn
+
+def dict_from_row(row):
+    """Convert database row to dict (works for both PostgreSQL and SQLite)"""
+    if isinstance(row, dict):
+        return row  # PostgreSQL RealDictRow
+    else:
+        return dict(row)  # SQLite Row
+
+def execute_query(cursor, query, params=None):
+    """Execute query with proper placeholder syntax for PostgreSQL or SQLite"""
+    if Config.DATABASE_TYPE == 'postgresql':
+        # PostgreSQL uses %s, query should already use %s
+        pass
+    else:
+        # SQLite uses ?, convert %s to ?
+        query = query.replace('%s', '?')
+
+    if params:
+        return cursor.execute(query, params)
+    return cursor.execute(query)
+
 # Database initialization
 def init_db():
-    conn = sqlite3.connect('valuations.db')
+    """Initialize database tables (only for SQLite - PostgreSQL uses migration script)"""
+    if Config.DATABASE_TYPE == 'postgresql':
+        logger.info("Using PostgreSQL - tables managed by migration script")
+        return
+
+    logger.info("Initializing SQLite database...")
+    conn = sqlite3.connect(Config.SQLITE_DB)
     c = conn.cursor()
-    
+
     # Companies table
     c.execute('''CREATE TABLE IF NOT EXISTS companies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +90,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-    
+
     # Company financials table
     c.execute('''CREATE TABLE IF NOT EXISTS company_financials (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +120,7 @@ def init_db():
         comparable_peg REAL,
         FOREIGN KEY (company_id) REFERENCES companies (id)
     )''')
-    
+
     # Valuation results table
     c.execute('''CREATE TABLE IF NOT EXISTS valuation_results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,9 +148,10 @@ def init_db():
         mc_p90 REAL,
         FOREIGN KEY (company_id) REFERENCES companies (id)
     )''')
-    
+
     conn.commit()
     conn.close()
+    logger.info("SQLite database initialized successfully")
 
 # Initialize database on startup
 init_db()
@@ -199,22 +249,29 @@ def import_and_value():
             return jsonify({'error': f'Could not fetch data for {ticker}'}), 404
 
         # Step 2: Save to database
-        conn = sqlite3.connect('valuations.db')
+        conn = get_db_connection()
         c = conn.cursor()
 
         # Insert company
-        c.execute('INSERT INTO companies (name, sector) VALUES (?, ?)',
-                  (company_data['name'], company_data['sector']))
-        company_id = c.lastrowid
+        if Config.DATABASE_TYPE == 'postgresql':
+            c.execute('INSERT INTO companies (name, sector) VALUES (%s, %s) RETURNING id',
+                      (company_data['name'], company_data['sector']))
+            company_id = c.fetchone()['id']
+        else:
+            c.execute('INSERT INTO companies (name, sector) VALUES (?, ?)',
+                      (company_data['name'], company_data['sector']))
+            company_id = c.lastrowid
 
         # Insert financials
-        c.execute('''INSERT INTO company_financials (
+        placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+        placeholders = ', '.join([placeholder] * 24)
+        c.execute(f'''INSERT INTO company_financials (
             company_id, revenue, ebitda, depreciation, capex_pct, working_capital_change,
             profit_margin, growth_rate_y1, growth_rate_y2, growth_rate_y3, terminal_growth,
             tax_rate, shares_outstanding, debt, cash, market_cap_estimate, beta,
             risk_free_rate, market_risk_premium, country_risk_premium, size_premium,
             comparable_ev_ebitda, comparable_pe, comparable_peg
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        ) VALUES ({placeholders})''',
         (company_id,
          company_data['revenue'], company_data['ebitda'], company_data['depreciation'],
          company_data['capex_pct'], company_data['working_capital_change'],
@@ -288,7 +345,7 @@ def index():
 
 @app.route('/api/companies', methods=['GET'])
 def get_companies():
-    conn = sqlite3.connect('valuations.db')
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('''SELECT c.id, c.name, c.sector, c.created_at,
                  vr.final_equity_value, vr.recommendation, vr.upside_pct,
@@ -302,24 +359,25 @@ def get_companies():
     
     companies = []
     for row in c.fetchall():
+        r = dict_from_row(row)
         companies.append({
-            'id': row[0],
-            'name': row[1],
-            'sector': row[2],
-            'created_at': row[3],
-            'fair_value': row[4],
-            'recommendation': row[5],
-            'upside': row[6],
-            'pe_ratio': row[7],
-            'roe': row[8],
-            'z_score': row[9],
-            'market_cap': row[10],
-            'current_price': row[11],
-            'wacc': row[12],
-            'ev_ebitda': row[13],
-            'roic': row[14],
-            'fcf_yield': row[15],
-            'debt_to_equity': row[16]
+            'id': r['id'],
+            'name': r['name'],
+            'sector': r['sector'],
+            'created_at': r['created_at'],
+            'fair_value': r['final_equity_value'],
+            'recommendation': r['recommendation'],
+            'upside': r['upside_pct'],
+            'pe_ratio': r['pe_ratio'],
+            'roe': r['roe'],
+            'z_score': r['z_score'],
+            'market_cap': r['market_cap'],
+            'current_price': r['current_price'],
+            'wacc': r['wacc'],
+            'ev_ebitda': r['ev_ebitda'],
+            'roic': r['roic'],
+            'fcf_yield': r['fcf_yield'],
+            'debt_to_equity': r['debt_to_equity']
         })
     
     conn.close()
@@ -327,7 +385,7 @@ def get_companies():
 
 @app.route('/api/company/<int:company_id>', methods=['GET'])
 def get_company(company_id):
-    conn = sqlite3.connect('valuations.db')
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Get company info
@@ -380,7 +438,7 @@ def create_company():
         company_data = CompanyCreate(**data)
         logger.info(f"Creating company: {company_data.name}")
         
-        conn = sqlite3.connect('valuations.db')
+        conn = get_db_connection()
         c = conn.cursor()
         
         # Insert company
@@ -441,7 +499,7 @@ def update_company(company_id):
         company_data = CompanyUpdate(**data)
         logger.info(f"Updating company ID {company_id}: {company_data.name}")
         
-        conn = sqlite3.connect('valuations.db')
+        conn = get_db_connection()
         c = conn.cursor()
         
         # Update company
@@ -510,7 +568,7 @@ def update_company(company_id):
 
 @app.route('/api/company/<int:company_id>', methods=['DELETE'])
 def delete_company(company_id):
-    conn = sqlite3.connect('valuations.db')
+    conn = get_db_connection()
     c = conn.cursor()
     
     c.execute('DELETE FROM valuation_results WHERE company_id = ?', (company_id,))
@@ -543,7 +601,7 @@ def run_valuation(company_id):
 
 @app.route('/api/export/csv', methods=['GET'])
 def export_csv():
-    conn = sqlite3.connect('valuations.db')
+    conn = get_db_connection()
     c = conn.cursor()
     
     c.execute('''SELECT c.name, c.sector, vr.*
@@ -586,7 +644,7 @@ def export_csv():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def dashboard_stats():
-    conn = sqlite3.connect('valuations.db')
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Get portfolio statistics
