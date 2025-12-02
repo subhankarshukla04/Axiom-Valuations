@@ -1,2 +1,38 @@
 flask==3.0.0
 pydantic==2.10.3
+yfinance==0.2.40
+pandas==2.2.0
+numpy==1.26.4
+requests==2.31.0
+
+# Phase 0: Foundation - PostgreSQL & Security
+psycopg2-binary==2.9.9
+flask-login==0.6.3
+flask-principal==0.4.0
+flask-limiter==3.5.0
+flask-talisman==1.1.0
+flask-wtf==1.2.1
+
+# Phase 2: Task Queue & Caching
+celery==5.3.6
+redis==5.0.1
+
+# Phase 2: Data Integration
+fredapi==0.5.1
+pandas-datareader==0.10.0
+scipy==1.12.0
+
+# Phase 3: Reporting & Pitch Books
+weasyprint==60.2
+jinja2==3.1.3
+pillow==10.2.0
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# Phase 4: Monitoring
+prometheus-flask-exporter==0.23.0
+python-json-logger==2.0.7
+
+# Development
+pytest==7.4.4
+pytest-flask==1.3.0
