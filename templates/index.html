@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Professional Investment Valuation Platform</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles_professional.css') }}?v=3">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ticker_add.css') }}?v=1">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- Chart.js for visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -25,6 +26,43 @@
     <div class="container main-content">
         <!-- Dashboard View -->
         <div id="dashboard-view" class="view-section active">
+            <!-- Quick Add by Ticker - NEW FEATURE -->
+            <div class="quick-add-section">
+                <div class="quick-add-card">
+                    <div class="quick-add-header">
+                        <h2>🚀 Quick Add Company</h2>
+                        <p>Enter any US stock ticker to automatically import and value</p>
+                    </div>
+                    <div class="quick-add-form">
+                        <input type="text"
+                               id="quick-ticker-input"
+                               placeholder="Enter ticker (e.g., AAPL, TSLA, NVDA)..."
+                               class="ticker-search-input"
+                               onkeyup="handleTickerInput(event)">
+                        <button class="btn-add-ticker" onclick="quickAddCompany()">
+                            <span id="add-btn-text">Import & Value</span>
+                            <span id="add-btn-loading" style="display:none;">⏳ Processing...</span>
+                        </button>
+                    </div>
+                    <div id="ticker-preview" class="ticker-preview" style="display:none;">
+                        <!-- Preview will show here -->
+                    </div>
+                    <div id="ticker-result" class="ticker-result" style="display:none;">
+                        <!-- Result will show here -->
+                    </div>
+                    <div class="quick-add-examples">
+                        <span>Popular: </span>
+                        <button class="ticker-chip" onclick="quickAddTicker('AAPL')">AAPL</button>
+                        <button class="ticker-chip" onclick="quickAddTicker('MSFT')">MSFT</button>
+                        <button class="ticker-chip" onclick="quickAddTicker('GOOGL')">GOOGL</button>
+                        <button class="ticker-chip" onclick="quickAddTicker('AMZN')">AMZN</button>
+                        <button class="ticker-chip" onclick="quickAddTicker('NVDA')">NVDA</button>
+                        <button class="ticker-chip" onclick="quickAddTicker('TSLA')">TSLA</button>
+                        <button class="ticker-chip" onclick="quickAddTicker('META')">META</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Quick Stats -->
             <div class="stats-grid">
                 <div class="stat-card" onclick="showView('companies')">
@@ -342,5 +380,6 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}?v=3"></script>
+    <script src="{{ url_for('static', filename='js/ticker_add.js') }}?v=1"></script>
 </body>
 </html>
