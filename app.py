@@ -8,6 +8,7 @@ import logging
 from pydantic import ValidationError
 from models import CompanyCreate, CompanyUpdate
 from valuation_service import ValuationService
+from data_integrator import DataIntegrator, fetch_company_by_ticker
 
 # Configure logging
 logging.basicConfig(
@@ -23,8 +24,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
 
-# Initialize valuation service
+# Initialize services
 valuation_service = ValuationService()
+data_integrator = DataIntegrator()
 
 # Database initialization
 def init_db():
@@ -103,6 +105,182 @@ def init_db():
 
 # Initialize database on startup
 init_db()
+
+# ============================================================================
+# NEW INSTITUTIONAL-GRADE ENDPOINTS
+# ============================================================================
+
+@app.route('/api/ticker/validate', methods=['POST'])
+def validate_ticker():
+    """
+    Validate if a ticker symbol exists.
+    Returns: {valid: true/false, name: "Company Name"}
+    """
+    data = request.json
+    ticker = data.get('ticker', '').upper().strip()
+
+    if not ticker:
+        return jsonify({'valid': False, 'error': 'Ticker required'}), 400
+
+    try:
+        is_valid = data_integrator.validate_ticker(ticker)
+        if is_valid:
+            stock_data = data_integrator.get_company_data(ticker)
+            return jsonify({
+                'valid': True,
+                'ticker': ticker,
+                'name': stock_data.get('name'),
+                'sector': stock_data.get('sector'),
+                'current_price': stock_data.get('current_price')
+            })
+        else:
+            return jsonify({'valid': False, 'error': 'Invalid ticker'}), 404
+    except Exception as e:
+        logger.error(f"Error validating ticker {ticker}: {e}")
+        return jsonify({'valid': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ticker/fetch', methods=['POST'])
+def fetch_ticker_data():
+    """
+    Fetch complete company data from Yahoo Finance by ticker.
+    Auto-populates ALL fields needed for valuation.
+
+    POST body: {"ticker": "AAPL"}
+    Returns: Complete company financial data
+    """
+    data = request.json
+    ticker = data.get('ticker', '').upper().strip()
+
+    if not ticker:
+        return jsonify({'error': 'Ticker required'}), 400
+
+    try:
+        logger.info(f"Fetching data for ticker: {ticker}")
+        company_data = data_integrator.get_company_data(ticker)
+
+        if company_data:
+            return jsonify({
+                'success': True,
+                'data': company_data,
+                'message': f'Successfully fetched data for {company_data["name"]}'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Could not fetch data for ticker: {ticker}'
+            }), 404
+
+    except Exception as e:
+        logger.error(f"Error fetching ticker data: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ticker/import-and-value', methods=['POST'])
+def import_and_value():
+    """
+    ONE-CLICK MAGIC: Import company from ticker and run full valuation.
+
+    POST body: {"ticker": "AAPL"}
+    Returns: Company ID, valuation results, and recommendation
+    """
+    data = request.json
+    ticker = data.get('ticker', '').upper().strip()
+
+    if not ticker:
+        return jsonify({'error': 'Ticker required'}), 400
+
+    try:
+        logger.info(f"Import-and-value workflow for: {ticker}")
+
+        # Step 1: Fetch data from Yahoo Finance
+        company_data = data_integrator.get_company_data(ticker)
+        if not company_data:
+            return jsonify({'error': f'Could not fetch data for {ticker}'}), 404
+
+        # Step 2: Save to database
+        conn = sqlite3.connect('valuations.db')
+        c = conn.cursor()
+
+        # Insert company
+        c.execute('INSERT INTO companies (name, sector) VALUES (?, ?)',
+                  (company_data['name'], company_data['sector']))
+        company_id = c.lastrowid
+
+        # Insert financials
+        c.execute('''INSERT INTO company_financials (
+            company_id, revenue, ebitda, depreciation, capex_pct, working_capital_change,
+            profit_margin, growth_rate_y1, growth_rate_y2, growth_rate_y3, terminal_growth,
+            tax_rate, shares_outstanding, debt, cash, market_cap_estimate, beta,
+            risk_free_rate, market_risk_premium, country_risk_premium, size_premium,
+            comparable_ev_ebitda, comparable_pe, comparable_peg
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (company_id,
+         company_data['revenue'], company_data['ebitda'], company_data['depreciation'],
+         company_data['capex_pct'], company_data['working_capital_change'],
+         company_data['profit_margin'],
+         company_data['growth_rate_y1'], company_data['growth_rate_y2'],
+         company_data['growth_rate_y3'], company_data['terminal_growth'],
+         company_data['tax_rate'], company_data['shares_outstanding'],
+         company_data['debt'], company_data['cash'], company_data['market_cap'],
+         company_data['beta'], company_data['risk_free_rate'],
+         company_data['market_risk_premium'], company_data['country_risk_premium'],
+         company_data['size_premium'], company_data['comparable_ev_ebitda'],
+         company_data['comparable_pe'], company_data['comparable_peg']))
+
+        conn.commit()
+        conn.close()
+
+        # Step 3: Run valuation
+        success, results, error = valuation_service.valuate_company(company_id)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'company_id': company_id,
+                'company_name': company_data['name'],
+                'ticker': ticker,
+                'current_price': company_data['current_price'],
+                'valuation': results,
+                'message': f'Successfully imported and valued {company_data["name"]}'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'company_id': company_id,
+                'error': f'Company imported but valuation failed: {error}'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error in import-and-value: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/price/realtime/<ticker>', methods=['GET'])
+def get_realtime_price(ticker):
+    """
+    Get real-time stock price for a ticker.
+
+    GET /api/price/realtime/AAPL
+    Returns: {ticker: "AAPL", price: 150.25, timestamp: "2024-11-30T10:30:00"}
+    """
+    try:
+        price = data_integrator.get_real_time_price(ticker.upper())
+        if price:
+            return jsonify({
+                'ticker': ticker.upper(),
+                'price': price,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            return jsonify({'error': 'Could not fetch price'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# EXISTING ENDPOINTS (unchanged)
+# ============================================================================
 
 @app.route('/')
 def index():
