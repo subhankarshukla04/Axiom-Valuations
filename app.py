@@ -41,14 +41,11 @@ def get_db_connection():
             Config.get_db_connection_string(),
             cursor_factory=RealDictCursor
         )
-        # Add a marker so we can detect PostgreSQL connections
-        conn._is_postgresql = True
         return conn
     else:
         # Fallback to SQLite
         conn = sqlite3.connect(Config.SQLITE_DB)
         conn.row_factory = sqlite3.Row
-        conn._is_postgresql = False
         return conn
 
 def dict_from_row(row):
@@ -57,6 +54,19 @@ def dict_from_row(row):
         return row  # PostgreSQL RealDictRow
     else:
         return dict(row)  # SQLite Row
+
+def convert_numpy_types(data):
+    """Convert numpy types to Python native types for PostgreSQL compatibility"""
+    import numpy as np
+
+    if isinstance(data, dict):
+        return {k: convert_numpy_types(v) for k, v in data.items()}
+    elif isinstance(data, (np.integer, np.floating)):
+        return float(data) if isinstance(data, np.floating) else int(data)
+    elif isinstance(data, np.ndarray):
+        return data.tolist()
+    else:
+        return data
 
 def execute_query(cursor, query, params=None):
     """Execute query with proper placeholder syntax for PostgreSQL or SQLite"""
@@ -247,6 +257,9 @@ def import_and_value():
         company_data = data_integrator.get_company_data(ticker)
         if not company_data:
             return jsonify({'error': f'Could not fetch data for {ticker}'}), 404
+
+        # Convert numpy types to Python types for PostgreSQL compatibility
+        company_data = convert_numpy_types(company_data)
 
         # Step 2: Save to database
         conn = get_db_connection()

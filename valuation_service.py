@@ -4,10 +4,13 @@ Single source of truth for all valuation operations.
 """
 
 import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import logging
 from typing import Dict, Optional, List, Tuple
 from datetime import datetime
 from valuation_professional import enhanced_dcf_valuation
+from config import Config
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -18,16 +21,23 @@ class ValuationService:
     Service class handling all valuation operations.
     Eliminates code duplication between app.py and run_valuations.py.
     """
-    
+
     def __init__(self, db_path: str = 'valuations.db'):
         self.db_path = db_path
         logger.info(f"Initialized ValuationService with database: {db_path}")
-    
-    def get_connection(self) -> sqlite3.Connection:
-        """Get database connection with row factory"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+
+    def get_connection(self):
+        """Get database connection (PostgreSQL or SQLite)"""
+        if Config.DATABASE_TYPE == 'postgresql':
+            conn = psycopg2.connect(
+                Config.get_db_connection_string(),
+                cursor_factory=RealDictCursor
+            )
+            return conn
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            return conn
     
     def fetch_company_data(self, company_id: int) -> Optional[Dict]:
         """
@@ -44,8 +54,9 @@ class ValuationService:
             cursor = conn.cursor()
             
             # Join companies and company_financials
-            cursor.execute('''
-                SELECT 
+            placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+            cursor.execute(f'''
+                SELECT
                     c.id, c.name, c.sector,
                     cf.revenue, cf.ebitda, cf.depreciation,
                     cf.capex_pct, cf.working_capital_change, cf.profit_margin,
@@ -57,7 +68,7 @@ class ValuationService:
                     cf.comparable_ev_ebitda, cf.comparable_pe, cf.comparable_peg
                 FROM companies c
                 JOIN company_financials cf ON c.id = cf.company_id
-                WHERE c.id = ?
+                WHERE c.id = {placeholder}
             ''', (company_id,))
             
             row = cursor.fetchone()
@@ -160,13 +171,15 @@ class ValuationService:
             cursor = conn.cursor()
             
             # Insert valuation results
-            cursor.execute('''
+            placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+            placeholders = ', '.join([placeholder] * 21)
+            cursor.execute(f'''
                 INSERT INTO valuation_results (
                     company_id, dcf_equity_value, dcf_price_per_share, comp_ev_value,
                     comp_pe_value, final_equity_value, final_price_per_share, market_cap,
                     current_price, upside_pct, recommendation, wacc, ev_ebitda, pe_ratio,
                     fcf_yield, roe, roic, debt_to_equity, z_score, mc_p10, mc_p90
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES ({placeholders})
             ''', (
                 company_id,
                 results['dcf_equity_value'],
