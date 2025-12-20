@@ -6,6 +6,7 @@ Auto-populates company financials from multiple sources
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 import logging
@@ -19,19 +20,37 @@ class DataIntegrator:
     Automatically populates all required fields for DCF valuation.
     """
 
+    # Class-level cache for treasury rate (shared across all instances)
+    _treasury_cache = None
+    _treasury_cache_time = 0
+    _TREASURY_CACHE_DURATION = 3600  # 1 hour in seconds
+
     def __init__(self):
         self.risk_free_rate = self._get_risk_free_rate()
         self.market_risk_premium = 0.065  # Historical US equity risk premium
 
     def _get_risk_free_rate(self) -> float:
-        """Get current 10-year Treasury rate as risk-free rate"""
+        """Get current 10-year Treasury rate as risk-free rate (with 1-hour caching)"""
+        # Check if we have a cached rate that's still fresh
+        if (DataIntegrator._treasury_cache is not None and
+            time.time() - DataIntegrator._treasury_cache_time < DataIntegrator._TREASURY_CACHE_DURATION):
+            cached_age = int(time.time() - DataIntegrator._treasury_cache_time)
+            logger.info(f"✅ Using cached treasury rate: {DataIntegrator._treasury_cache*100:.2f}% (cached {cached_age}s ago)")
+            return DataIntegrator._treasury_cache
+
+        # Cache expired or doesn't exist, fetch new rate
         try:
             # Use ^TNX (10-year Treasury yield)
             tnx = yf.Ticker("^TNX")
             hist = tnx.history(period="5d")
             if not hist.empty:
                 rate = hist['Close'].iloc[-1] / 100  # Convert from percentage
-                logger.info(f"Risk-free rate (10Y Treasury): {rate*100:.2f}%")
+                logger.info(f"✅ Fetched fresh treasury rate: {rate*100:.2f}% (will cache for 1 hour)")
+
+                # Update cache
+                DataIntegrator._treasury_cache = rate
+                DataIntegrator._treasury_cache_time = time.time()
+
                 return rate
             else:
                 logger.warning("Could not fetch Treasury rate, using default 4.5%")
