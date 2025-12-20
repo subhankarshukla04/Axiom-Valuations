@@ -1,6 +1,7 @@
 import csv
 import math
 from statistics import mean, stdev
+from config import Config
 
 def get_float(prompt):
 	while True:
@@ -109,10 +110,14 @@ def monte_carlo_valuation(base_value, growth_volatility, discount_volatility, it
 	import random
 	
 	results = []
+	# Allow defaults from Config if not explicitly passed
+	g_vol = growth_volatility if growth_volatility is not None else Config.MONTE_CARLO_GROWTH_VOL
+	d_vol = discount_volatility if discount_volatility is not None else Config.MONTE_CARLO_DISCOUNT_VOL
+
 	for _ in range(iterations):
-		growth_shock = random.gauss(0, growth_volatility)
-		discount_shock = random.gauss(0, discount_volatility)
-		
+		growth_shock = random.gauss(0, g_vol)
+		discount_shock = random.gauss(0, d_vol)
+
 		adjusted_value = base_value * (1 + growth_shock) / (1 + discount_shock)
 		results.append(adjusted_value)
 	
@@ -269,11 +274,12 @@ def enhanced_dcf_valuation(company_data):
 	print(f"  Company PEG Ratio:            {implied_peg:.2f}")
 	print(f"  Industry PEG:                 {comp_peg:.2f}")
 	
-	# Weighted Valuation
-	weight_dcf = 0.50
-	weight_ev_ebitda = 0.25
-	weight_pe = 0.25
-	
+	# Weighted Valuation (configurable weights)
+	w = Config.VALUATION_WEIGHTS
+	weight_dcf = w.get('dcf', 0.5)
+	weight_ev_ebitda = w.get('ev_ebitda', 0.25)
+	weight_pe = w.get('pe', 0.25)
+
 	final_equity_value = (
 		dcf_equity_value * weight_dcf +
 		comp_equity_ev * weight_ev_ebitda +
@@ -331,7 +337,7 @@ def enhanced_dcf_valuation(company_data):
 		print()
 	
 	# Monte Carlo Simulation
-	mc_results = monte_carlo_valuation(final_equity_value, 0.15, 0.10, 1000)
+	mc_results = monte_carlo_valuation(final_equity_value, None, None, 1000)
 	
 	print(f"\n--- Monte Carlo Simulation (1,000 iterations) ---")
 	print(f"  Mean Valuation:               ${mc_results['mean']:,.0f}")
@@ -360,31 +366,57 @@ def enhanced_dcf_valuation(company_data):
 	upside = ((final_equity_value - market_cap) / market_cap) * 100
 	print(f"  Upside/(Downside):                  {upside:+.1f}%")
 	
-	# Investment Recommendation
-	if upside > 20:
+	# Investment Recommendation (configurable thresholds)
+	th = Config.RECOMMENDATION_THRESHOLDS
+	if upside > th.get('strong_buy', 20):
 		recommendation = "STRONG BUY"
 		target_price = final_price_per_share
-	elif upside > 10:
+	elif upside > th.get('buy', 10):
 		recommendation = "BUY"
 		target_price = final_price_per_share
-	elif upside > -10:
+	elif upside > th.get('hold', -10):
 		recommendation = "HOLD"
 		target_price = final_price_per_share
-	elif upside > -20:
+	elif upside > th.get('underweight', -20):
 		recommendation = "UNDERWEIGHT"
 		target_price = final_price_per_share
 	else:
 		recommendation = "SELL"
 		target_price = final_price_per_share
+
+	# Safety overrides and downgrades
+	# Altman Z-score severe distress -> force SELL or downgrade
+	try:
+		if z_score < Config.ALT_ZSCORE_SELL_THRESHOLD:
+			# Downgrade by one notch toward SELL
+			order = ["STRONG BUY", "BUY", "HOLD", "UNDERWEIGHT", "SELL"]
+			if recommendation in order and recommendation != "SELL":
+				idx = order.index(recommendation)
+				recommendation = order[min(idx + 1, len(order) - 1)]
+	except Exception:
+		# If anything goes wrong with override logic, continue with base rec
+		pass
+
+	# Debt/Equity high -> downgrade one notch
+	try:
+		if ratios.get('debt_to_equity', 0) > Config.DEBT_EQUITY_DOWNGRADE:
+			order = ["STRONG BUY", "BUY", "HOLD", "UNDERWEIGHT", "SELL"]
+			if recommendation in order and recommendation != "SELL":
+				idx = order.index(recommendation)
+				recommendation = order[min(idx + 1, len(order) - 1)]
+	except Exception:
+		pass
 	
 	print(f"  ")
 	print(f"  RECOMMENDATION:                     {recommendation}")
 	print(f"  Target Price (12-month):            ${target_price:,.2f}")
 	print(f"  ")
+	bear = Config.BEAR_MULTIPLIER
+	bull = Config.BULL_MULTIPLIER
 	print(f"  Valuation Range:")
-	print(f"    Bear Case (25% discount):         ${final_equity_value * 0.75:,.0f}  (${final_price_per_share * 0.75:.2f}/share)")
+	print(f"    Bear Case ({(1-bear)*100:.0f}% haircut):         ${final_equity_value * bear:,.0f}  (${final_price_per_share * bear:.2f}/share)")
 	print(f"    Base Case:                        ${final_equity_value:,.0f}  (${final_price_per_share:.2f}/share)")
-	print(f"    Bull Case (25% premium):          ${final_equity_value * 1.25:,.0f}  (${final_price_per_share * 1.25:.2f}/share)")
+	print(f"    Bull Case ({(bull-1)*100:.0f}% premium):          ${final_equity_value * bull:,.0f}  (${final_price_per_share * bull:.2f}/share)")
 	
 	print(f"{'=' * 80}\n")
 	

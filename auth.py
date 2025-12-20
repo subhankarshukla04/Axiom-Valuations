@@ -11,6 +11,15 @@ import sqlite3
 from typing import Optional
 from config import Config
 
+
+def _execute_query(cursor, query, params=None):
+    """Execute query using %s placeholders and translate to ? for SQLite."""
+    if Config.DATABASE_TYPE != 'postgresql':
+        query = query.replace('%s', '?')
+    if params:
+        return cursor.execute(query, params)
+    return cursor.execute(query)
+
 # Create authentication blueprint
 auth_bp = Blueprint('auth', __name__)
 
@@ -36,10 +45,7 @@ class User(UserMixin):
         cursor = conn.cursor()
 
         try:
-            cursor.execute(
-                'SELECT id, username, email, role FROM users WHERE id = ?',
-                (user_id,)
-            )
+            _execute_query(cursor, 'SELECT id, username, email, role FROM users WHERE id = %s', (user_id,))
             row = cursor.fetchone()
 
             if row:
@@ -61,10 +67,7 @@ class User(UserMixin):
         cursor = conn.cursor()
 
         try:
-            cursor.execute(
-                'SELECT id, username, email, role FROM users WHERE username = ?',
-                (username,)
-            )
+            _execute_query(cursor, 'SELECT id, username, email, role FROM users WHERE username = %s', (username,))
             row = cursor.fetchone()
 
             if row:
@@ -86,18 +89,12 @@ class User(UserMixin):
         cursor = conn.cursor()
 
         try:
-            cursor.execute(
-                'SELECT id, username, email, role, password_hash FROM users WHERE username = ?',
-                (username,)
-            )
+            _execute_query(cursor, 'SELECT id, username, email, role, password_hash FROM users WHERE username = %s', (username,))
             row = cursor.fetchone()
 
             if row and check_password_hash(row['password_hash'], password):
                 # Update last login
-                cursor.execute(
-                    'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?',
-                    (row['id'],)
-                )
+                _execute_query(cursor, 'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = %s', (row['id'],))
                 conn.commit()
 
                 return User(
@@ -119,14 +116,17 @@ class User(UserMixin):
 
         try:
             password_hash = generate_password_hash(password)
-            cursor.execute(
-                '''INSERT INTO users (username, email, password_hash, role)
-                   VALUES (?, ?, ?, ?)''',
-                (username, email, password_hash, role)
-            )
-            conn.commit()
+            if Config.DATABASE_TYPE == 'postgresql':
+                _execute_query(cursor, '''INSERT INTO users (username, email, password_hash, role)
+                   VALUES (%s, %s, %s, %s) RETURNING id''', (username, email, password_hash, role))
+                user_id = cursor.fetchone()['id']
+                conn.commit()
+            else:
+                _execute_query(cursor, '''INSERT INTO users (username, email, password_hash, role)
+                   VALUES (%s, %s, %s, %s)''', (username, email, password_hash, role))
+                conn.commit()
+                user_id = cursor.lastrowid
 
-            user_id = cursor.lastrowid
             return User(id=user_id, username=username, email=email, role=role)
         except sqlite3.IntegrityError:
             return None  # Username or email already exists
@@ -287,14 +287,11 @@ def init_auth(app):
             ''')
 
             # Create default admin user if no users exist
-            cursor.execute('SELECT COUNT(*) as count FROM users')
+            _execute_query(cursor, 'SELECT COUNT(*) as count FROM users')
             if cursor.fetchone()['count'] == 0:
                 admin_password = generate_password_hash('admin')
-                cursor.execute(
-                    '''INSERT INTO users (username, email, password_hash, role)
-                       VALUES (?, ?, ?, ?)''',
-                ('admin', 'admin@localhost', admin_password, 'admin')
-            )
+                _execute_query(cursor, '''INSERT INTO users (username, email, password_hash, role)
+                       VALUES (%s, %s, %s, %s)''', ('admin', 'admin@localhost', admin_password, 'admin'))
             print("✅ Created default admin user (username: admin, password: admin)")
             print("⚠️  CHANGE THIS PASSWORD IMMEDIATELY!")
 
