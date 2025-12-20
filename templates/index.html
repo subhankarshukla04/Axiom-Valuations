@@ -19,6 +19,7 @@
                 <a href="#" onclick="showView('companies')" class="nav-link" data-view="companies">Portfolio</a>
                 <a href="#" onclick="exportCSV()" class="nav-link">Export Data</a>
                 <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">🌓</button>
+                <button class="btn-secondary" onclick="showSettingsModal()" title="Portfolio Settings">⚙️ Settings</button>
             </div>
         </div>
     </nav>
@@ -26,6 +27,45 @@
     <div class="container main-content">
         <!-- Dashboard View -->
         <div id="dashboard-view" class="view-section active">
+            <!-- Macro Environment Control Panel - Phase 1 -->
+            <div class="macro-control-panel">
+                <div class="macro-header">
+                    <h2>🌍 Market Environment</h2>
+                    <div id="current-macro-status">
+                        <span class="macro-status-badge base">Active: Base Case</span>
+                    </div>
+                </div>
+
+                <div class="macro-environments" id="macro-environments">
+                    <!-- Macro cards will be loaded here -->
+                </div>
+
+                <div class="macro-impact-summary" id="macro-impact" style="display: none;">
+                    <h3>Portfolio Impact Preview</h3>
+                    <div class="impact-grid">
+                        <div class="impact-item">
+                            <div class="impact-label">Avg Growth Rate</div>
+                            <div class="impact-value" id="impact-growth">--</div>
+                            <div class="impact-change" id="impact-growth-change"></div>
+                        </div>
+                        <div class="impact-item">
+                            <div class="impact-label">Avg Risk-Free Rate</div>
+                            <div class="impact-value" id="impact-rfr">--</div>
+                            <div class="impact-change" id="impact-rfr-change"></div>
+                        </div>
+                        <div class="impact-item">
+                            <div class="impact-label">Market Risk Premium</div>
+                            <div class="impact-value" id="impact-mrp">--</div>
+                            <div class="impact-change" id="impact-mrp-change"></div>
+                        </div>
+                        <div class="impact-item">
+                            <div class="impact-label">Companies Affected</div>
+                            <div class="impact-value" id="impact-companies">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Quick Add by Ticker - NEW FEATURE -->
             <div class="quick-add-section">
                 <div class="quick-add-card">
@@ -227,6 +267,59 @@
                         </div>
                     </div>
 
+                            <!-- Settings Modal -->
+                            <div id="settings-modal" class="modal">
+                                <div class="modal-content small">
+                                    <div class="modal-header">
+                                        <h2>Portfolio Settings</h2>
+                                        <span class="close" onclick="closeSettingsModal()">&times;</span>
+                                    </div>
+                                    <div class="modal-body">
+                                        <form id="settings-form">
+                                            <div class="form-group">
+                                                <label>Strong Buy Threshold (%)</label>
+                                                <input type="number" step="0.1" id="th-strong-buy">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Buy Threshold (%)</label>
+                                                <input type="number" step="0.1" id="th-buy">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Hold Threshold (%)</label>
+                                                <input type="number" step="0.1" id="th-hold">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Underweight Threshold (%)</label>
+                                                <input type="number" step="0.1" id="th-underweight">
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label>DCF Weight</label>
+                                                <input type="number" step="0.01" id="w-dcf">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>EV/EBITDA Weight</label>
+                                                <input type="number" step="0.01" id="w-ev-ebitda">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>P/E Weight</label>
+                                                <input type="number" step="0.01" id="w-pe">
+                                            </div>
+
+                                            <div class="form-group">
+                                                <label><input type="checkbox" id="recompute-on-save"> Recompute valuation on save</label>
+                                                <p class="small">When enabled, saving a company will automatically run the valuation and show results.</p>
+                                            </div>
+
+                                            <div class="form-actions">
+                                                <button type="button" class="btn-cancel" onclick="closeSettingsModal()">Cancel</button>
+                                                <button type="submit" class="btn-submit">Save Settings</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
                     <div class="form-section">
                         <h3>Financial Data</h3>
                         <div class="form-grid">
@@ -381,5 +474,6 @@
 
     <script src="{{ url_for('static', filename='js/app.js') }}?v=3"></script>
     <script src="{{ url_for('static', filename='js/ticker_add.js') }}?v=1"></script>
+    <script src="{{ url_for('static', filename='js/macro_controls.js') }}?v=1"></script>
 </body>
 </html>

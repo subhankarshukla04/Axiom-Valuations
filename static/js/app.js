@@ -10,14 +10,19 @@ let filteredCompanies = [];
 let currentFilter = 'all';
 let currentSort = 'name';
 let dashboardStats = null;
+let appSettings = {};
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     loadDashboard();
     loadCompanies();
-    
+    // Load settings at startup so UI behavior (like recompute-on-save) is available
+    loadSettings();
     // Form submission
     document.getElementById('company-form').addEventListener('submit', saveCompany);
+    // Settings form submission
+    const settingsForm = document.getElementById('settings-form');
+    if (settingsForm) settingsForm.addEventListener('submit', saveSettings);
     
     // Load theme preference
     const savedTheme = localStorage.getItem('theme') || 'light';
@@ -330,16 +335,16 @@ function renderCompanies() {
                     <!-- Main Metrics -->
                     <div class="company-metrics">
                         <div class="metric">
-                            <div class="metric-label">Fair Value</div>
-                            <div class="metric-value">$${formatNumber(company.fair_value)}</div>
+                            <div class="metric-label">DCF Fair Price</div>
+                            <div class="metric-value clickable" onclick="showFairValueBreakdown(${company.id})">$${formatNumber(company.fair_value)}</div>
                         </div>
                         <div class="metric">
                             <div class="metric-label">Current Price</div>
-                            <div class="metric-value">$${company.current_price ? company.current_price.toFixed(2) : 'N/A'}</div>
+                            <div class="metric-value company-current-price">$${company.current_price ? company.current_price.toFixed(2) : 'N/A'}</div>
                         </div>
                         <div class="metric">
                             <div class="metric-label">Market Cap</div>
-                            <div class="metric-value">$${formatNumber(company.market_cap)}</div>
+                            <div class="metric-value company-market-cap">$${formatNumber(company.market_cap)}</div>
                         </div>
                         <div class="metric">
                             <div class="metric-label">Upside</div>
@@ -386,7 +391,20 @@ function renderCompanies() {
                         <p style="font-size: 0.875rem;">Run a valuation to see detailed analysis</p>
                     </div>
                 `}
-                
+
+                <!-- Scenario Selector (Bear/Base/Bull) -->
+                <div class="scenario-selector">
+                    <button class="scenario-btn bear base active" data-scenario="bear" onclick="applyScenarioToCompany(${company.id}, 'bear')" title="Pessimistic scenario">
+                        🐻 Bear
+                    </button>
+                    <button class="scenario-btn base" data-scenario="base" onclick="applyScenarioToCompany(${company.id}, 'base')" title="Balanced scenario">
+                        📊 Base
+                    </button>
+                    <button class="scenario-btn bull" data-scenario="bull" onclick="applyScenarioToCompany(${company.id}, 'bull')" title="Optimistic scenario">
+                        🐂 Bull
+                    </button>
+                </div>
+
                 <!-- Action Buttons -->
                 <div class="company-actions">
                     <button class="btn btn-primary" onclick="runValuation(${company.id})" title="${company.fair_value ? 'Re-run valuation' : 'Run initial valuation'}">
@@ -407,6 +425,51 @@ function renderCompanies() {
     }).join('');
     
     document.getElementById('companies-grid').innerHTML = companiesHtml;
+}
+
+// Show fair value breakdown modal (fetch latest stored valuation and show detailed methods)
+async function showFairValueBreakdown(companyId) {
+    try {
+        showLoadingState('Loading valuation breakdown...');
+        const res = await fetch(`/api/company/${companyId}`);
+        if (!res.ok) throw new Error('Failed to load company valuation');
+        const data = await res.json();
+
+        // If the endpoint returns an object with `valuation`, map it into the shape expected by showValuationResults
+        const val = data.valuation || data;
+
+        const result = {
+            company_id: data.id,
+            name: data.name,
+            recommendation: val.recommendation || val.recommendation,
+            upside_pct: val.upside_pct || val.upside_pct || 0,
+            final_equity_value: val.final_equity_value || val.final_equity_value,
+            final_price_per_share: val.final_price_per_share || val.final_price_per_share || 0,
+            market_cap: val.market_cap || val.market_cap || 0,
+            current_price: val.current_price || val.current_price || 0,
+            dcf_equity_value: val.dcf_equity_value || val.dcf_equity_value,
+            dcf_price_per_share: val.dcf_price_per_share || val.dcf_price_per_share || 0,
+            comp_ev_value: val.comp_ev_value || val.comp_ev_value || 0,
+            comp_pe_value: val.comp_pe_value || val.comp_pe_value || 0,
+            mc_p10: val.mc_p10 || val.mc_p10 || 0,
+            mc_p90: val.mc_p90 || val.mc_p90 || 0,
+            wacc: val.wacc || 0,
+            ev_ebitda: val.ev_ebitda || 0,
+            pe_ratio: val.pe_ratio || 0,
+            fcf_yield: val.fcf_yield || 0,
+            roe: val.roe || 0,
+            roic: val.roic || 0,
+            debt_to_equity: val.debt_to_equity || 0,
+            z_score: val.z_score || 0
+        };
+
+        hideLoadingState();
+        showValuationResults(result);
+    } catch (err) {
+        hideLoadingState();
+        console.error('Error loading valuation breakdown:', err);
+        alert('Could not load valuation breakdown');
+    }
 }
 
 // ============================================
@@ -547,6 +610,99 @@ function closeValuationModal() {
 }
 
 // ============================================
+// SETTINGS MODAL + API
+// ============================================
+
+function showSettingsModal() {
+    document.getElementById('settings-modal').classList.add('active');
+    loadSettings();
+}
+
+function closeSettingsModal() {
+    document.getElementById('settings-modal').classList.remove('active');
+}
+
+async function loadSettings() {
+    try {
+        const res = await fetch('/api/settings');
+        if (!res.ok) throw new Error('Failed to load settings');
+        const s = await res.json();
+        appSettings = s || {};
+
+        document.getElementById('th-strong-buy').value = s.recommendation_thresholds.strong_buy;
+        document.getElementById('th-buy').value = s.recommendation_thresholds.buy;
+        document.getElementById('th-hold').value = s.recommendation_thresholds.hold;
+        document.getElementById('th-underweight').value = s.recommendation_thresholds.underweight;
+
+        document.getElementById('w-dcf').value = s.valuation_weights.dcf;
+        document.getElementById('w-ev-ebitda').value = s.valuation_weights.ev_ebitda;
+        document.getElementById('w-pe').value = s.valuation_weights.pe;
+        // Recompute on save checkbox (defaults to false)
+        const recomputeEl = document.getElementById('recompute-on-save');
+        if (recomputeEl) recomputeEl.checked = !!s.recompute_on_save;
+
+    } catch (err) {
+        console.error('Error loading settings:', err);
+        alert('Could not load settings');
+    }
+}
+
+async function saveSettings(e) {
+    e.preventDefault();
+    try {
+        const payload = {
+            recommendation_thresholds: {
+                strong_buy: parseFloat(document.getElementById('th-strong-buy').value),
+                buy: parseFloat(document.getElementById('th-buy').value),
+                hold: parseFloat(document.getElementById('th-hold').value),
+                underweight: parseFloat(document.getElementById('th-underweight').value)
+            },
+            valuation_weights: {
+                dcf: parseFloat(document.getElementById('w-dcf').value),
+                ev_ebitda: parseFloat(document.getElementById('w-ev-ebitda').value),
+                pe: parseFloat(document.getElementById('w-pe').value)
+            }
+        };
+
+        // Add recompute on save flag
+        const recomputeEl = document.getElementById('recompute-on-save');
+        payload.recompute_on_save = recomputeEl ? !!recomputeEl.checked : false;
+
+        // Basic validation: weights sum to ~1
+        const sum = payload.valuation_weights.dcf + payload.valuation_weights.ev_ebitda + payload.valuation_weights.pe;
+        if (Math.abs(sum - 1.0) > 0.01) {
+            if (!confirm('Weights do not sum to 1.0. Save anyway?')) return;
+        }
+
+        showLoadingState('Saving settings...');
+        const res = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        hideLoadingState();
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to save settings');
+        }
+
+        const result = await res.json();
+        // Update local cached settings
+        appSettings = result.settings || payload;
+        closeSettingsModal();
+        loadDashboard();
+        loadCompanies();
+        alert('Settings saved');
+
+    } catch (err) {
+        hideLoadingState();
+        console.error('Error saving settings:', err);
+        alert('Error saving settings');
+    }
+}
+
+// ============================================
 // SAVE COMPANY
 // ============================================
 
@@ -632,8 +788,26 @@ async function saveCompany(e) {
                 console.error('Error running valuation:', error);
             }
         } else {
-            hideLoadingState();
-            alert('✅ Company created successfully! Click "Value" to generate valuation.');
+            // If user enabled recompute-on-save, run valuation immediately for newly created company
+            if (appSettings && appSettings.recompute_on_save) {
+                try {
+                    const valResponse = await fetch(`/api/valuation/${result.id}`, { method: 'POST' });
+                    if (!valResponse.ok) {
+                        const err = await valResponse.json();
+                        throw new Error(err.error || 'Valuation failed');
+                    }
+                    const valResult = await valResponse.json();
+                    hideLoadingState();
+                    showValuationResults(valResult);
+                } catch (err) {
+                    hideLoadingState();
+                    console.error('Error running valuation after create:', err);
+                    alert('Company created. Valuation failed to run automatically.');
+                }
+            } else {
+                hideLoadingState();
+                alert('✅ Company created successfully! Click "Value" to generate valuation.');
+            }
         }
         
         loadCompanies();
