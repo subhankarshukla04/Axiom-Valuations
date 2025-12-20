@@ -4,6 +4,8 @@ Fetches current market prices for portfolio companies
 """
 
 import yfinance as yf
+import time
+import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 import psycopg2
@@ -13,6 +15,11 @@ from config import Config
 class RealtimePriceService:
     def __init__(self):
         self.conn = None
+        # Create persistent session with better user-agent to avoid blocks
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
 
     def get_connection(self):
         """Get database connection"""
@@ -34,7 +41,11 @@ class RealtimePriceService:
             Current price or None if error
         """
         try:
-            stock = yf.Ticker(ticker)
+            # Add 2-second delay to avoid rate limiting
+            time.sleep(2)
+
+            # Use session for requests to maintain connection pool and user-agent
+            stock = yf.Ticker(ticker, session=self.session)
             data = stock.history(period='1d', interval='1m')
 
             if data.empty:
@@ -63,10 +74,12 @@ class RealtimePriceService:
         try:
             # Get all companies with tickers
             cursor.execute("""
-                SELECT id, name, ticker, market_cap_estimate, shares_outstanding
-                FROM companies
-                WHERE ticker IS NOT NULL AND ticker != ''
-                ORDER BY name
+                SELECT c.id, c.name, c.ticker,
+                       cf.market_cap_estimate as market_cap, cf.shares_outstanding
+                FROM companies c
+                LEFT JOIN company_financials cf ON c.id = cf.company_id
+                WHERE c.ticker IS NOT NULL AND c.ticker != ''
+                ORDER BY c.name
             """)
 
             companies = cursor.fetchall()
@@ -77,23 +90,34 @@ class RealtimePriceService:
                 current_price = self.get_current_price(ticker)
 
                 if current_price:
-                    # Update market cap estimate based on current price
-                    if company['shares_outstanding']:
+                    # Update market cap based on current price
+                    new_market_cap = company.get('market_cap', 0)
+                    if company.get('shares_outstanding'):
                         new_market_cap = current_price * company['shares_outstanding']
 
+                        # Update company_financials
                         cursor.execute("""
-                            UPDATE companies
-                            SET market_cap_estimate = %s,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE id = %s
+                            UPDATE company_financials
+                            SET market_cap_estimate = %s
+                            WHERE company_id = %s
                         """, (new_market_cap, company['id']))
+
+                        # ALSO update valuation_results current_price and market_cap
+                        # so the UI shows the updated price immediately
+                        cursor.execute("""
+                            UPDATE valuation_results
+                            SET current_price = %s,
+                                market_cap = %s
+                            WHERE company_id = %s
+                            AND id = (SELECT MAX(id) FROM valuation_results WHERE company_id = %s)
+                        """, (current_price, new_market_cap, company['id'], company['id']))
 
                     updated_prices.append({
                         'company_id': company['id'],
                         'ticker': ticker,
                         'name': company['name'],
                         'current_price': current_price,
-                        'market_cap': new_market_cap if company['shares_outstanding'] else company['market_cap_estimate'],
+                        'market_cap': new_market_cap,
                         'updated_at': datetime.now().isoformat()
                     })
 
@@ -118,10 +142,12 @@ class RealtimePriceService:
 
         try:
             cursor.execute("""
-                SELECT id, name, ticker, market_cap_estimate, shares_outstanding
-                FROM companies
-                WHERE ticker IS NOT NULL AND ticker != ''
-                ORDER BY name
+                SELECT c.id, c.name, c.ticker,
+                       cf.market_cap_estimate as market_cap, cf.shares_outstanding
+                FROM companies c
+                LEFT JOIN company_financials cf ON c.id = cf.company_id
+                WHERE c.ticker IS NOT NULL AND c.ticker != ''
+                ORDER BY c.name
             """)
 
             companies = cursor.fetchall()
@@ -132,7 +158,9 @@ class RealtimePriceService:
                 current_price = self.get_current_price(ticker)
 
                 if current_price:
-                    market_cap = (current_price * company['shares_outstanding']) if company['shares_outstanding'] else company['market_cap_estimate']
+                    market_cap = company.get('market_cap', 0)
+                    if company.get('shares_outstanding'):
+                        market_cap = current_price * company['shares_outstanding']
 
                     prices.append({
                         'company_id': company['id'],
