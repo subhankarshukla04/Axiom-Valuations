@@ -16,6 +16,10 @@ from config import Config, get_config
 from auth import init_auth, login_required, role_required, current_user
 from logger import setup_app_logger, get_logger, log_api_request, log_valuation
 
+# Phase 1: Import scenario management APIs
+from phase1_api_endpoints import register_phase1_routes
+from realtime_price_service import get_price_service
+
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -32,6 +36,10 @@ init_auth(app)
 # Initialize services
 valuation_service = ValuationService()
 data_integrator = DataIntegrator()
+
+# Register Phase 1 API routes (scenarios, macros, audit trail)
+register_phase1_routes(app)
+logger.info("Phase 1 API endpoints registered (31 endpoints)")
 
 # Database connection helper (supports both PostgreSQL and SQLite)
 def get_db_connection():
@@ -162,6 +170,32 @@ def init_db():
     conn.commit()
     conn.close()
     logger.info("SQLite database initialized successfully")
+
+
+def ensure_settings_table():
+    """Ensure a settings table exists for persistent app settings (works for both DBs)"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+
+    # Create a simple key/value table where value is JSON text
+    if Config.DATABASE_TYPE == 'postgresql':
+        c.execute('''CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )''')
+    else:
+        c.execute('''CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )''')
+
+    conn.commit()
+    conn.close()
+
+
+# Ensure settings table exists on startup
+ensure_settings_table()
 
 # Initialize database on startup
 init_db()
@@ -378,7 +412,14 @@ def get_companies():
             'name': r['name'],
             'sector': r['sector'],
             'created_at': r['created_at'],
-            'fair_value': r['final_equity_value'],
+            # Show DCF price/share as the main 'Fair Value' on listing (falls back to composite)
+            'fair_value': r.get('dcf_price_per_share') or r.get('final_price_per_share') or r.get('final_equity_value'),
+            'dcf_equity_value': r.get('dcf_equity_value'),
+            'dcf_price_per_share': r.get('dcf_price_per_share'),
+            'comp_ev_value': r.get('comp_ev_value'),
+            'comp_pe_value': r.get('comp_pe_value'),
+            'mc_p10': r.get('mc_p10'),
+            'mc_p90': r.get('mc_p90'),
             'recommendation': r['recommendation'],
             'upside': r['upside_pct'],
             'pe_ratio': r['pe_ratio'],
@@ -396,50 +437,129 @@ def get_companies():
     conn.close()
     return jsonify(companies)
 
+
+def _load_settings_from_db():
+    conn = get_db_connection()
+    c = conn.cursor()
+    # Fetch the 'app_settings' key if present using correct placeholder
+    placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+    query = f"SELECT value FROM settings WHERE key = {placeholder}"
+    c.execute(query, ('app_settings',))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    # row may be tuple, list, or dict-like
+    if isinstance(row, dict):
+        val = row.get('value')
+    else:
+        try:
+            val = row[0]
+        except Exception:
+            val = None
+
+    import json as _json
+    try:
+        return _json.loads(val) if val else None
+    except Exception:
+        return None
+
+
+def _save_settings_to_db(settings_dict):
+    import json as _json
+    json_text = _json.dumps(settings_dict)
+    conn = get_db_connection()
+    c = conn.cursor()
+    # Upsert depending on DB
+    if Config.DATABASE_TYPE == 'postgresql':
+        c.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", ('app_settings', json_text))
+    else:
+        c.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('app_settings', json_text))
+
+    conn.commit()
+    conn.close()
+
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """Return merged settings (defaults from Config overridden by DB-stored values)."""
+    # Defaults from Config
+    defaults = {
+        'recommendation_thresholds': Config.RECOMMENDATION_THRESHOLDS,
+        'valuation_weights': Config.VALUATION_WEIGHTS,
+        'bear_multiplier': Config.BEAR_MULTIPLIER,
+        'bull_multiplier': Config.BULL_MULTIPLIER,
+        'monte_growth_vol': Config.MONTE_CARLO_GROWTH_VOL,
+        'monte_discount_vol': Config.MONTE_CARLO_DISCOUNT_VOL,
+        'terminal_margin': Config.TERMINAL_MARGIN,
+        'alt_zscore_sell_threshold': Config.ALT_ZSCORE_SELL_THRESHOLD,
+        'debt_equity_downgrade': Config.DEBT_EQUITY_DOWNGRADE
+    }
+
+    stored = _load_settings_from_db() or {}
+
+    # Merge (stored values override defaults)
+    merged = defaults.copy()
+    merged.update(stored)
+    return jsonify(merged)
+
+
+@app.route('/api/settings', methods=['PUT'])
+def update_settings():
+    """Update settings (accepts partial JSON). Persists to DB."""
+    try:
+        data = request.json
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Invalid payload, expected JSON object'}), 400
+
+        current = _load_settings_from_db() or {}
+        # Merge updates
+        current.update(data)
+        _save_settings_to_db(current)
+        return jsonify({'success': True, 'settings': current})
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/company/<int:company_id>', methods=['GET'])
 def get_company(company_id):
     conn = get_db_connection()
     c = conn.cursor()
-    
+
+    # Use placeholder-aware queries
+    placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+
     # Get company info
-    c.execute('SELECT * FROM companies WHERE id = ?', (company_id,))
+    c.execute(f'SELECT * FROM companies WHERE id = {placeholder}', (company_id,))
     company_row = c.fetchone()
-    
+
     if not company_row:
         conn.close()
         return jsonify({'error': 'Company not found'}), 404
-    
+
     # Get financials
-    c.execute('SELECT * FROM company_financials WHERE company_id = ?', (company_id,))
+    c.execute(f'SELECT * FROM company_financials WHERE company_id = {placeholder}', (company_id,))
     financials_row = c.fetchone()
-    
+
     # Get latest valuation
-    c.execute('SELECT * FROM valuation_results WHERE company_id = ? ORDER BY valuation_date DESC LIMIT 1', (company_id,))
+    c.execute(f'SELECT * FROM valuation_results WHERE company_id = {placeholder} ORDER BY valuation_date DESC LIMIT 1', (company_id,))
     valuation_row = c.fetchone()
-    
+
     conn.close()
-    
+
+    # Normalize rows to dicts for both SQLite and PostgreSQL
+    comp = dict_from_row(company_row)
+    fin = dict_from_row(financials_row) if financials_row else None
+    val = dict_from_row(valuation_row) if valuation_row else None
+
     company_data = {
-        'id': company_row[0],
-        'name': company_row[1],
-        'sector': company_row[2],
-        'financials': dict(zip([
-            'id', 'company_id', 'revenue', 'ebitda', 'depreciation', 'capex_pct',
-            'working_capital_change', 'profit_margin', 'growth_rate_y1', 'growth_rate_y2',
-            'growth_rate_y3', 'terminal_growth', 'tax_rate', 'shares_outstanding',
-            'debt', 'cash', 'market_cap_estimate', 'beta', 'risk_free_rate',
-            'market_risk_premium', 'country_risk_premium', 'size_premium',
-            'comparable_ev_ebitda', 'comparable_pe', 'comparable_peg'
-        ], financials_row)) if financials_row else None,
-        'valuation': dict(zip([
-            'id', 'company_id', 'valuation_date', 'dcf_equity_value', 'dcf_price_per_share',
-            'comp_ev_value', 'comp_pe_value', 'final_equity_value', 'final_price_per_share',
-            'market_cap', 'current_price', 'upside_pct', 'recommendation', 'wacc',
-            'ev_ebitda', 'pe_ratio', 'fcf_yield', 'roe', 'roic', 'debt_to_equity',
-            'z_score', 'mc_p10', 'mc_p90'
-        ], valuation_row)) if valuation_row else None
+        'id': comp.get('id'),
+        'name': comp.get('name'),
+        'sector': comp.get('sector'),
+        'financials': fin,
+        'valuation': val
     }
-    
+
     return jsonify(company_data)
 
 @app.route('/api/company', methods=['POST'])
@@ -453,20 +573,26 @@ def create_company():
         
         conn = get_db_connection()
         c = conn.cursor()
-        
-        # Insert company
-        c.execute('INSERT INTO companies (name, sector) VALUES (?, ?)',
-                  (company_data.name, company_data.sector))
-        company_id = c.lastrowid
-        
-        # Insert financials
-        c.execute('''INSERT INTO company_financials (
+
+        # Insert company (use RETURNING for PostgreSQL)
+        if Config.DATABASE_TYPE == 'postgresql':
+            c.execute('INSERT INTO companies (name, sector) VALUES (%s, %s) RETURNING id',
+                      (company_data.name, company_data.sector))
+            company_id = c.fetchone()['id']
+        else:
+            c.execute('INSERT INTO companies (name, sector) VALUES (?, ?)',
+                      (company_data.name, company_data.sector))
+            company_id = c.lastrowid
+
+        # Insert financials (use execute_query helper to handle placeholders)
+        placeholders = ', '.join(['%s'] * 24)
+        execute_query(c, f'''INSERT INTO company_financials (
             company_id, revenue, ebitda, depreciation, capex_pct, working_capital_change,
             profit_margin, growth_rate_y1, growth_rate_y2, growth_rate_y3, terminal_growth,
             tax_rate, shares_outstanding, debt, cash, market_cap_estimate, beta,
             risk_free_rate, market_risk_premium, country_risk_premium, size_premium,
             comparable_ev_ebitda, comparable_pe, comparable_peg
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        ) VALUES ({placeholders})''',
         (company_id, company_data.revenue, company_data.ebitda,
          company_data.depreciation, company_data.capex_pct,
          company_data.working_capital_change, company_data.profit_margin,
@@ -478,7 +604,7 @@ def create_company():
          company_data.market_risk_premium, company_data.country_risk_premium,
          company_data.size_premium, company_data.comparable_ev_ebitda,
          company_data.comparable_pe, company_data.comparable_peg))
-        
+
         conn.commit()
         conn.close()
         
@@ -516,30 +642,30 @@ def update_company(company_id):
         c = conn.cursor()
         
         # Update company
-        c.execute('UPDATE companies SET name = ?, sector = ?, updated_at = ? WHERE id = ?',
-                  (company_data.name, company_data.sector, datetime.now().isoformat(), company_id))
-        
+        execute_query(c, 'UPDATE companies SET name = %s, sector = %s, updated_at = %s WHERE id = %s',
+              (company_data.name, company_data.sector, datetime.now().isoformat(), company_id))
+
         # Update financials
-        c.execute('''UPDATE company_financials SET
-            revenue = ?, ebitda = ?, depreciation = ?, capex_pct = ?,
-            working_capital_change = ?, profit_margin = ?, growth_rate_y1 = ?,
-            growth_rate_y2 = ?, growth_rate_y3 = ?, terminal_growth = ?,
-            tax_rate = ?, shares_outstanding = ?, debt = ?, cash = ?,
-            market_cap_estimate = ?, beta = ?, risk_free_rate = ?,
-            market_risk_premium = ?, country_risk_premium = ?, size_premium = ?,
-            comparable_ev_ebitda = ?, comparable_pe = ?, comparable_peg = ?
-            WHERE company_id = ?''',
-        (company_data.revenue, company_data.ebitda,
-         company_data.depreciation, company_data.capex_pct,
-         company_data.working_capital_change, company_data.profit_margin,
-         company_data.growth_rate_y1, company_data.growth_rate_y2,
-         company_data.growth_rate_y3, company_data.terminal_growth,
-         company_data.tax_rate, company_data.shares_outstanding,
-         company_data.debt, company_data.cash, company_data.market_cap_estimate,
-         company_data.beta, company_data.risk_free_rate,
-         company_data.market_risk_premium, company_data.country_risk_premium,
-         company_data.size_premium, company_data.comparable_ev_ebitda,
-         company_data.comparable_pe, company_data.comparable_peg, company_id))
+        execute_query(c, '''UPDATE company_financials SET
+                revenue = %s, ebitda = %s, depreciation = %s, capex_pct = %s,
+                working_capital_change = %s, profit_margin = %s, growth_rate_y1 = %s,
+                growth_rate_y2 = %s, growth_rate_y3 = %s, terminal_growth = %s,
+                tax_rate = %s, shares_outstanding = %s, debt = %s, cash = %s,
+                market_cap_estimate = %s, beta = %s, risk_free_rate = %s,
+                market_risk_premium = %s, country_risk_premium = %s, size_premium = %s,
+                comparable_ev_ebitda = %s, comparable_pe = %s, comparable_peg = %s
+                WHERE company_id = %s''',
+            (company_data.revenue, company_data.ebitda,
+             company_data.depreciation, company_data.capex_pct,
+             company_data.working_capital_change, company_data.profit_margin,
+             company_data.growth_rate_y1, company_data.growth_rate_y2,
+             company_data.growth_rate_y3, company_data.terminal_growth,
+             company_data.tax_rate, company_data.shares_outstanding,
+             company_data.debt, company_data.cash, company_data.market_cap_estimate,
+             company_data.beta, company_data.risk_free_rate,
+             company_data.market_risk_premium, company_data.country_risk_premium,
+             company_data.size_premium, company_data.comparable_ev_ebitda,
+             company_data.comparable_pe, company_data.comparable_peg, company_id))
         
         conn.commit()
         conn.close()
@@ -583,14 +709,16 @@ def update_company(company_id):
 def delete_company(company_id):
     conn = get_db_connection()
     c = conn.cursor()
-    
-    c.execute('DELETE FROM valuation_results WHERE company_id = ?', (company_id,))
-    c.execute('DELETE FROM company_financials WHERE company_id = ?', (company_id,))
-    c.execute('DELETE FROM companies WHERE id = ?', (company_id,))
-    
+    # Use correct placeholder depending on DB backend
+    placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+
+    c.execute(f'DELETE FROM valuation_results WHERE company_id = {placeholder}', (company_id,))
+    c.execute(f'DELETE FROM company_financials WHERE company_id = {placeholder}', (company_id,))
+    c.execute(f'DELETE FROM companies WHERE id = {placeholder}', (company_id,))
+
     conn.commit()
     conn.close()
-    
+
     return jsonify({'message': 'Company deleted successfully'})
 
 @app.route('/api/valuation/<int:company_id>', methods=['POST'])
@@ -679,6 +807,7 @@ def dashboard_stats():
         )''')
     
     stats = c.fetchone()
+    stats = dict_from_row(stats) if stats else {}
     
     # Get sector breakdown with P/E
     c.execute('''SELECT c.sector, COUNT(*), AVG(vr.upside_pct), AVG(vr.roe), AVG(vr.pe_ratio)
@@ -691,20 +820,200 @@ def dashboard_stats():
     
     sectors = c.fetchall()
     conn.close()
-    
-    return jsonify({
-        'total_companies': stats[0] or 0,
-        'avg_upside': round(stats[1] or 0, 2),
-        'buy_count': stats[2] or 0,
-        'hold_count': stats[3] or 0,
-        'sell_count': stats[4] or 0,
-        'avg_pe': round(stats[5] or 0, 1),
-        'avg_roe': round(stats[6] or 0, 1),
-        'total_fair_value': stats[7] or 0,
-        'total_market_cap': stats[8] or 0,
-        'avg_wacc': round(stats[9] or 0, 2),
-        'sectors': [{'name': s[0], 'count': s[1], 'avg_upside': round(s[2] or 0, 2), 'avg_roe': round(s[3] or 0, 1), 'avg_pe': round(s[4] or 0, 1)} for s in sectors]
-    })
+
+    # Normalize stats and sectors for both SQLite (tuples) and PostgreSQL (dicts)
+    result = {
+        'total_companies': stats.get('total_companies', 0) if isinstance(stats, dict) else (stats or {}).get('total_companies', 0),
+        'avg_upside': round(stats.get('avg_upside', 0) if isinstance(stats, dict) else 0, 2),
+        'buy_count': stats.get('buy_count', 0) if isinstance(stats, dict) else 0,
+        'hold_count': stats.get('hold_count', 0) if isinstance(stats, dict) else 0,
+        'sell_count': stats.get('sell_count', 0) if isinstance(stats, dict) else 0,
+        'avg_pe': round(stats.get('avg_pe', 0) if isinstance(stats, dict) else 0, 1),
+        'avg_roe': round(stats.get('avg_roe', 0) if isinstance(stats, dict) else 0, 1),
+        'total_fair_value': stats.get('total_fair_value', 0) if isinstance(stats, dict) else 0,
+        'total_market_cap': stats.get('total_market_cap', 0) if isinstance(stats, dict) else 0,
+        'avg_wacc': round(stats.get('avg_wacc', 0) if isinstance(stats, dict) else 0, 2),
+        'sectors': []
+    }
+
+    for s in sectors:
+        row = dict_from_row(s) if not isinstance(s, dict) else s
+        result['sectors'].append({
+            'name': row.get('sector'),
+            'count': row.get('count') or 0,
+            'avg_upside': round(row.get('avg_upside', 0) or 0, 2),
+            'avg_roe': round(row.get('avg_roe', 0) or 0, 1),
+            'avg_pe': round(row.get('avg_pe', 0) or 0, 1)
+        })
+
+    return jsonify(result)
+
+# ============================================================================
+# REAL-TIME PRICE UPDATES & PER-COMPANY SCENARIOS
+# ============================================================================
+
+@app.route('/api/prices/realtime', methods=['GET'])
+def get_realtime_prices():
+    """
+    Get current market prices for all portfolio companies
+    Called every minute by frontend
+    """
+    try:
+        price_service = get_price_service()
+        prices = price_service.get_portfolio_prices()
+
+        return jsonify({
+            'success': True,
+            'prices': prices,
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching realtime prices: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/prices/update', methods=['POST'])
+def update_portfolio_prices():
+    """
+    Update database with current market prices
+    """
+    try:
+        price_service = get_price_service()
+        updated_prices = price_service.update_all_portfolio_prices()
+
+        return jsonify({
+            'success': True,
+            'updated': len(updated_prices),
+            'prices': updated_prices
+        })
+
+    except Exception as e:
+        logger.error(f"Error updating prices: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/company/<int:company_id>/scenario/apply', methods=['POST'])
+def apply_scenario_to_company(company_id):
+    """
+    Apply Bear/Base/Bull scenario to a specific company
+
+    POST body: {"scenario_type": "bear"|"base"|"bull"}
+    """
+    data = request.json
+    scenario_type = data.get('scenario_type', 'base').lower()
+
+    if scenario_type not in ['bear', 'base', 'bull']:
+        return jsonify({'error': 'Invalid scenario type'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Get current company financials
+        cursor.execute("""
+            SELECT cf.*, c.name, c.sector
+            FROM company_financials cf
+            JOIN companies c ON cf.company_id = c.id
+            WHERE cf.company_id = %s
+            ORDER BY cf.updated_at DESC
+            LIMIT 1
+        """, (company_id,))
+
+        current = cursor.fetchone()
+        if not current:
+            return jsonify({'error': 'Company financials not found'}), 404
+
+        # Get or create scenario
+        cursor.execute("""
+            SELECT s.id, sa.*
+            FROM scenarios s
+            LEFT JOIN scenario_assumptions sa ON s.id = sa.scenario_id
+            WHERE s.company_id = %s AND LOWER(s.name) LIKE %s
+            LIMIT 1
+        """, (company_id, f'%{scenario_type}%'))
+
+        scenario = cursor.fetchone()
+
+        # Scenario multipliers
+        multipliers = {
+            'bear': {'growth': 0.75, 'risk_adj': 1.20, 'multiple': 0.75},
+            'base': {'growth': 1.00, 'risk_adj': 1.00, 'multiple': 1.00},
+            'bull': {'growth': 1.25, 'risk_adj': 0.85, 'multiple': 1.25}
+        }
+
+        mult = multipliers[scenario_type]
+
+        # Calculate new assumptions
+        new_assumptions = {
+            'growth_rate_y1': current['growth_rate_y1'] * mult['growth'],
+            'growth_rate_y2': current['growth_rate_y2'] * mult['growth'],
+            'growth_rate_y3': current['growth_rate_y3'] * mult['growth'],
+            'beta': current['beta'] * mult['risk_adj'],
+            'risk_free_rate': current['risk_free_rate'] + (0.015 if scenario_type == 'bear' else -0.01 if scenario_type == 'bull' else 0),
+            'market_risk_premium': current['market_risk_premium'] + (0.02 if scenario_type == 'bear' else -0.015 if scenario_type == 'bull' else 0),
+            'comparable_ev_ebitda': current['comparable_ev_ebitda'] * mult['multiple'],
+            'comparable_pe': current['comparable_pe'] * mult['multiple']
+        }
+
+        # Update company financials with new scenario
+        cursor.execute("""
+            UPDATE company_financials
+            SET growth_rate_y1 = %s,
+                growth_rate_y2 = %s,
+                growth_rate_y3 = %s,
+                beta = %s,
+                risk_free_rate = %s,
+                market_risk_premium = %s,
+                comparable_ev_ebitda = %s,
+                comparable_pe = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE company_id = %s
+        """, (
+            new_assumptions['growth_rate_y1'],
+            new_assumptions['growth_rate_y2'],
+            new_assumptions['growth_rate_y3'],
+            new_assumptions['beta'],
+            new_assumptions['risk_free_rate'],
+            new_assumptions['market_risk_premium'],
+            new_assumptions['comparable_ev_ebitda'],
+            new_assumptions['comparable_pe'],
+            company_id
+        ))
+
+        # Create or update scenario record
+        if not scenario:
+            cursor.execute("""
+                INSERT INTO scenarios (company_id, name, description, is_default)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """, (
+                company_id,
+                f"{scenario_type.capitalize()} Case",
+                f"{scenario_type.capitalize()} market scenario",
+                scenario_type == 'base'
+            ))
+            scenario_id = cursor.fetchone()['id']
+        else:
+            scenario_id = scenario['id']
+
+        conn.commit()
+
+        return jsonify({
+            'success': True,
+            'company_id': company_id,
+            'scenario_type': scenario_type,
+            'scenario_id': scenario_id,
+            'assumptions': new_assumptions
+        })
+
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error applying scenario to company {company_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 if __name__ == '__main__':
     # Use port 5001 to avoid conflict with macOS AirPlay Receiver on port 5000

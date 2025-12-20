@@ -47,6 +47,38 @@ class Config:
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     LOG_FILE = 'logs/app.log'
 
+    # Recommendation thresholds (percentages)
+    RECOMMENDATION_THRESHOLDS = {
+        'strong_buy': float(os.environ.get('THRESH_STRONG_BUY', '20')),  # >= 20%
+        'buy': float(os.environ.get('THRESH_BUY', '10')),                # >= 10%
+        'hold': float(os.environ.get('THRESH_HOLD', '-10')),             # > -10% and <= 10%
+        'underweight': float(os.environ.get('THRESH_UNDERWEIGHT', '-20'))# > -20% and <= -10%
+    }
+
+    # Valuation method weights (sum should be 1.0)
+    # Default changed to use DCF as the primary/display fair value method.
+    VALUATION_WEIGHTS = {
+        'dcf': float(os.environ.get('WEIGHT_DCF', '1.0')),
+        'ev_ebitda': float(os.environ.get('WEIGHT_EV_EBITDA', '0.0')),
+        'pe': float(os.environ.get('WEIGHT_PE', '0.0'))
+    }
+
+    # Which method to display as the primary 'Fair Value' in lists/detail cards
+    FAIR_DISPLAY_METHOD = os.environ.get('FAIR_DISPLAY_METHOD', 'dcf')  # 'dcf'|'composite'|'ev_ebitda'|'pe'
+
+    # Bear/Bull multipliers for quick scenario buckets
+    BEAR_MULTIPLIER = float(os.environ.get('BEAR_MULTIPLIER', '0.75'))
+    BULL_MULTIPLIER = float(os.environ.get('BULL_MULTIPLIER', '1.25'))
+
+    # Monte Carlo defaults (volatility inputs)
+    MONTE_CARLO_GROWTH_VOL = float(os.environ.get('MONTE_GROWTH_VOL', '0.15'))
+    MONTE_CARLO_DISCOUNT_VOL = float(os.environ.get('MONTE_DISCOUNT_VOL', '0.10'))
+
+    # Safety margins and overrides
+    TERMINAL_MARGIN = float(os.environ.get('TERMINAL_MARGIN', '0.01'))
+    ALT_ZSCORE_SELL_THRESHOLD = float(os.environ.get('ALT_ZSCORE_SELL_THRESHOLD', '1.81'))
+    DEBT_EQUITY_DOWNGRADE = float(os.environ.get('DEBT_EQUITY_DOWNGRADE', '2.0'))
+
     @staticmethod
     def get_db_connection_string() -> str:
         """Get database connection string based on DATABASE_TYPE"""

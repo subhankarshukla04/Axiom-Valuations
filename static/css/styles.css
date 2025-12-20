@@ -572,3 +572,277 @@ body {
 canvas {
     margin: 1rem 0;
 }
+
+/* Phase 1: Macro Environment Controls */
+.macro-control-panel {
+    background: white;
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+}
+
+.macro-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.macro-header h2 {
+    color: #333;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.macro-status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.macro-status-badge.bear {
+    background: #fee140;
+    color: #c82333;
+}
+
+.macro-status-badge.base {
+    background: #38ef7d;
+    color: #11998e;
+}
+
+.macro-status-badge.bull {
+    background: #667eea;
+    color: white;
+}
+
+.macro-environments {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.macro-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 3px solid transparent;
+    border-radius: 12px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.macro-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    transition: all 0.3s ease;
+}
+
+.macro-card.bear::before {
+    background: linear-gradient(90deg, #fa709a 0%, #fee140 100%);
+}
+
+.macro-card.base::before {
+    background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
+}
+
+.macro-card.bull::before {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+}
+
+.macro-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+
+.macro-card.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+.macro-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.macro-card-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.macro-active-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #38ef7d;
+    box-shadow: 0 0 10px rgba(56, 239, 125, 0.5);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.macro-card-description {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 1rem;
+    min-height: 40px;
+}
+
+.macro-assumptions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #dee2e6;
+}
+
+.macro-assumption-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+}
+
+.macro-assumption-label {
+    color: #666;
+}
+
+.macro-assumption-value {
+    font-weight: 600;
+    color: #333;
+}
+
+.macro-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.btn-activate {
+    flex: 1;
+    padding: 0.75rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-activate:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-activate:disabled {
+    background: #e9ecef;
+    color: #999;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-apply-portfolio {
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #667eea;
+    background: white;
+    color: #667eea;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-apply-portfolio:hover {
+    background: #667eea;
+    color: white;
+}
+
+.macro-impact-summary {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.macro-impact-summary h3 {
+    color: #667eea;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+}
+
+.impact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.impact-item {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.impact-label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 0.5rem;
+}
+
+.impact-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #333;
+}
+
+.impact-change {
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+}
+
+.impact-change.positive {
+    color: #38ef7d;
+}
+
+.impact-change.negative {
+    color: #fa709a;
+}
+
+/* Responsive adjustments for macro controls */
+@media (max-width: 1024px) {
+    .macro-environments {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .macro-assumptions {
+        grid-template-columns: 1fr;
+    }
+
+    .macro-actions {
+        flex-direction: column;
+    }
+}
