@@ -6,28 +6,30 @@ Fetches current market prices for portfolio companies
 import yfinance as yf
 import time
 import requests
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import Config
 
+logger = logging.getLogger(__name__)
+
 class RealtimePriceService:
     def __init__(self):
         self.conn = None
-        # Create persistent session with better user-agent to avoid blocks
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        # Note: Not using custom session - yfinance handles its own session internally
 
     def get_connection(self):
         """Get database connection"""
-        if not self.conn or self.conn.closed:
-            self.conn = psycopg2.connect(
-                Config.get_db_connection_string(),
-                cursor_factory=RealDictCursor
-            )
+        # Always close and get fresh connection to avoid transaction isolation issues
+        if self.conn and not self.conn.closed:
+            self.conn.close()
+
+        self.conn = psycopg2.connect(
+            Config.get_db_connection_string(),
+            cursor_factory=RealDictCursor
+        )
         return self.conn
 
     def get_current_price(self, ticker: str) -> Optional[float]:
@@ -44,8 +46,8 @@ class RealtimePriceService:
             # Add 2-second delay to avoid rate limiting
             time.sleep(2)
 
-            # Use session for requests to maintain connection pool and user-agent
-            stock = yf.Ticker(ticker, session=self.session)
+            # Let yfinance handle its own session (curl_cffi)
+            stock = yf.Ticker(ticker)
             data = stock.history(period='1d', interval='1m')
 
             if data.empty:
@@ -58,7 +60,7 @@ class RealtimePriceService:
             return float(current_price)
 
         except Exception as e:
-            print(f"Error fetching price for {ticker}: {e}")
+            logger.error(f"Error fetching price for {ticker}: {e}")
             return None
 
     def update_all_portfolio_prices(self) -> List[Dict]:
@@ -83,6 +85,12 @@ class RealtimePriceService:
             """)
 
             companies = cursor.fetchall()
+            logger.info(f"Found {len(companies)} companies with tickers in database")
+            if len(companies) == 0:
+                logger.warning("No companies with tickers found! Check database.")
+            for comp in companies:
+                logger.info(f"  - {comp['name']} ({comp['ticker']})")
+
             updated_prices = []
 
             for company in companies:
