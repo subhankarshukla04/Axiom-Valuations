@@ -771,16 +771,19 @@ function loadInstitutionalScore(companyId) {
             if (data.error) { container.innerHTML = ''; return; }
             const grade = data.quality_grade || '—';
             const gradeColor = grade === 'A' ? '#3fb950' : grade === 'B' ? '#d29922' : grade === 'C' ? '#f0883e' : '#f85149';
+            const scoreNum = (data.quality_score * 100).toFixed(0);
             container.innerHTML = `
-                <span style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.82rem;background:#161b22;border:1px solid #30363d;border-radius:4px;padding:0.3rem 0.6rem">
-                  <span style="color:#8b949e">Quality</span>
-                  <span style="font-family:var(--num-font,monospace);font-weight:700;color:${gradeColor}">${grade}</span>
-                  <span style="color:#8b949e">${(data.quality_score * 100).toFixed(0)}/100</span>
-                  <span style="color:#30363d">|</span>
-                  <span style="color:#8b949e">${data.complexity || ''}</span>
-                  <span style="color:#30363d">|</span>
-                  <span style="color:#8b949e">Conf: ${data.confidence || '—'}</span>
-                  ${data.suggested_wacc ? `<span style="color:#30363d">|</span><span style="color:#8b949e">WACC suggest: <span style="color:#e6edf3">${(data.suggested_wacc*100).toFixed(1)}%</span></span>` : ''}
+                <span style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.82rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:4px;padding:0.3rem 0.6rem;flex-wrap:wrap">
+                  <span class="axiom-tip" data-tip="Company quality score based on profitability (ROE, ROIC), margins, cash flow conversion, and leverage. A = excellent, D = poor." style="color:var(--text-secondary);display:inline-flex;align-items:center;gap:0.35rem">
+                    Quality
+                    <span style="font-family:var(--font-mono);font-weight:700;color:${gradeColor}">${grade}</span>
+                    <span style="color:var(--text-tertiary)">${scoreNum}/100</span>
+                  </span>
+                  <span style="color:var(--border-secondary)">|</span>
+                  <span class="axiom-tip" data-tip="Valuation complexity: STRAIGHTFORWARD = stable, predictable business. COMPLEX/HIGHLY_COMPLEX = multiple segments, cyclicality, or turnaround situations." style="color:var(--text-secondary)">${data.complexity || ''}</span>
+                  <span style="color:var(--border-secondary)">|</span>
+                  <span class="axiom-tip" data-tip="Our confidence in this valuation based on data completeness and comparable companies available." style="color:var(--text-secondary)">Conf: ${data.confidence || '—'}</span>
+                  ${data.suggested_wacc ? `<span style="color:var(--border-secondary)">|</span><span class="axiom-tip" data-tip="Suggested discount rate (WACC) based on the company's risk profile, beta, and capital structure." style="color:var(--text-secondary)">WACC: <span style="color:var(--text-primary)">${(data.suggested_wacc*100).toFixed(1)}%</span></span>` : ''}
                 </span>`;
         })
         .catch(() => { container.innerHTML = ''; });
@@ -886,13 +889,16 @@ async function loadPeers(companyId) {
                         if (container) {
                             const grade = instData.quality_grade || '—';
                             const gradeColor = grade === 'A' ? '#3fb950' : grade === 'B' ? '#d29922' : grade === 'C' ? '#f0883e' : '#f85149';
+                            const scoreNum = (instData.quality_score * 100).toFixed(0);
                             container.innerHTML = `
-                                <span style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.82rem;background:#161b22;border:1px solid #30363d;border-radius:4px;padding:0.3rem 0.6rem">
-                                  <span style="color:#8b949e">Quality</span>
-                                  <span style="font-family:var(--num-font,monospace);font-weight:700;color:${gradeColor}">${grade}</span>
-                                  <span style="color:#8b949e">${(instData.quality_score * 100).toFixed(0)}/100</span>
-                                  <span style="color:#30363d">|</span>
-                                  <span style="color:#8b949e">${instData.complexity || ''}</span>
+                                <span style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.82rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:4px;padding:0.3rem 0.6rem;flex-wrap:wrap">
+                                  <span class="axiom-tip" data-tip="Company quality score based on profitability (ROE, ROIC), margins, cash flow conversion, and leverage. A = excellent, D = poor." style="color:var(--text-secondary);display:inline-flex;align-items:center;gap:0.35rem">
+                                    Quality
+                                    <span style="font-family:var(--font-mono);font-weight:700;color:${gradeColor}">${grade}</span>
+                                    <span style="color:var(--text-tertiary)">${scoreNum}/100</span>
+                                  </span>
+                                  <span style="color:var(--border-secondary)">|</span>
+                                  <span class="axiom-tip" data-tip="Valuation complexity: STRAIGHTFORWARD = stable, predictable business. COMPLEX/HIGHLY_COMPLEX = multiple segments, cyclicality, or turnaround situations." style="color:var(--text-secondary)">${instData.complexity || ''}</span>
                                 </span>`;
                         }
                     }

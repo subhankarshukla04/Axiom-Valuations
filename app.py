@@ -134,9 +134,25 @@ def execute_query(cursor, query, params=None):
 
 # Database initialization
 def init_db():
-    """Initialize database tables (only for SQLite - PostgreSQL uses migration script)"""
+    """Initialize database tables (SQLite) or run column migrations (PostgreSQL)."""
     if Config.DATABASE_TYPE == 'postgresql':
-        logger.info("Using PostgreSQL - tables managed by migration script")
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            pg_migrations = [
+                'ALTER TABLE companies ADD COLUMN IF NOT EXISTS industry TEXT',
+                'ALTER TABLE valuation_results ADD COLUMN IF NOT EXISTS sub_sector_tag TEXT',
+                'ALTER TABLE valuation_results ADD COLUMN IF NOT EXISTS company_type TEXT',
+                'ALTER TABLE valuation_results ADD COLUMN IF NOT EXISTS ebitda_method TEXT',
+                'ALTER TABLE valuation_results ADD COLUMN IF NOT EXISTS analyst_target REAL',
+            ]
+            for sql in pg_migrations:
+                c.execute(sql)
+            conn.commit()
+            conn.close()
+            logger.info("PostgreSQL column migrations applied")
+        except Exception as e:
+            logger.warning(f"PostgreSQL migration warning: {e}")
         return
 
     logger.info("Initializing SQLite database...")
@@ -148,9 +164,18 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         sector TEXT,
+        ticker TEXT,
+        industry TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
+
+    # Add ticker/industry columns to existing DBs (no-op if already present)
+    for col, coltype in [('ticker', 'TEXT'), ('industry', 'TEXT')]:
+        try:
+            c.execute(f'ALTER TABLE companies ADD COLUMN {col} {coltype}')
+        except Exception:
+            pass
 
     # Company financials table
     c.execute('''CREATE TABLE IF NOT EXISTS company_financials (
@@ -207,8 +232,20 @@ def init_db():
         z_score REAL,
         mc_p10 REAL,
         mc_p90 REAL,
+        sub_sector_tag TEXT,
+        company_type TEXT,
+        ebitda_method TEXT,
+        analyst_target REAL,
         FOREIGN KEY (company_id) REFERENCES companies (id)
     )''')
+
+    # Add new columns to existing valuation_results (no-op if already present)
+    for col, coltype in [('sub_sector_tag', 'TEXT'), ('company_type', 'TEXT'),
+                         ('ebitda_method', 'TEXT'), ('analyst_target', 'REAL')]:
+        try:
+            c.execute(f'ALTER TABLE valuation_results ADD COLUMN {col} {coltype}')
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
@@ -343,13 +380,14 @@ def import_and_value():
         c = conn.cursor()
 
         # Insert company
+        industry_val = company_data.get('industry') or None
         if Config.DATABASE_TYPE == 'postgresql':
-            c.execute('INSERT INTO companies (name, sector, ticker) VALUES (%s, %s, %s) RETURNING id',
-                      (company_data['name'], company_data['sector'], ticker))
+            c.execute('INSERT INTO companies (name, sector, ticker, industry) VALUES (%s, %s, %s, %s) RETURNING id',
+                      (company_data['name'], company_data['sector'], ticker, industry_val))
             company_id = c.fetchone()['id']
         else:
-            c.execute('INSERT INTO companies (name, sector, ticker) VALUES (?, ?, ?)',
-                      (company_data['name'], company_data['sector'], ticker))
+            c.execute('INSERT INTO companies (name, sector, ticker, industry) VALUES (?, ?, ?, ?)',
+                      (company_data['name'], company_data['sector'], ticker, industry_val))
             company_id = c.lastrowid
 
         # Insert financials
@@ -433,15 +471,20 @@ def get_realtime_price(ticker):
 def index():
     return render_template('index.html')
 
+@app.route('/preview')
+def preview():
+    return render_template('preview.html')
+
 @app.route('/api/companies', methods=['GET'])
 def get_companies():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''SELECT c.id, c.name, c.ticker, c.sector, c.created_at,
-                 vr.final_equity_value, vr.recommendation, vr.upside_pct,
+                 vr.final_equity_value, vr.final_price_per_share, vr.dcf_price_per_share,
+                 vr.recommendation, vr.upside_pct,
                  vr.pe_ratio, vr.roe, vr.z_score, vr.market_cap,
                  vr.current_price, vr.wacc, vr.ev_ebitda, vr.roic,
-                 vr.fcf_yield, vr.debt_to_equity
+                 vr.fcf_yield, vr.debt_to_equity, vr.analyst_target
                  FROM companies c
                  LEFT JOIN valuation_results vr ON c.id = vr.company_id
                  AND vr.id = (SELECT MAX(id) FROM valuation_results WHERE company_id = c.id)
@@ -456,8 +499,7 @@ def get_companies():
             'ticker': r.get('ticker'),
             'sector': r['sector'],
             'created_at': r['created_at'],
-            # Show DCF price/share as the main 'Fair Value' on listing (falls back to composite)
-            'fair_value': r.get('dcf_price_per_share') or r.get('final_price_per_share') or r.get('final_equity_value'),
+            'fair_value': r.get('final_price_per_share') or r.get('dcf_price_per_share') or r.get('final_equity_value'),
             'dcf_equity_value': r.get('dcf_equity_value'),
             'dcf_price_per_share': r.get('dcf_price_per_share'),
             'comp_ev_value': r.get('comp_ev_value'),
@@ -475,7 +517,8 @@ def get_companies():
             'ev_ebitda': r['ev_ebitda'],
             'roic': r['roic'],
             'fcf_yield': r['fcf_yield'],
-            'debt_to_equity': r['debt_to_equity']
+            'debt_to_equity': r['debt_to_equity'],
+            'analyst_target': r.get('analyst_target')
         })
     
     conn.close()
@@ -619,14 +662,15 @@ def create_company():
         c = conn.cursor()
 
         # Insert company (use RETURNING for PostgreSQL)
-        ticker_val = data.get('ticker', '').upper().strip()
+        ticker_val = data.get('ticker', '').upper().strip() or None
+        industry_val = data.get('industry', '') or None
         if Config.DATABASE_TYPE == 'postgresql':
-            c.execute('INSERT INTO companies (name, sector, ticker) VALUES (%s, %s, %s) RETURNING id',
-                      (company_data.name, company_data.sector, ticker_val or None))
+            c.execute('INSERT INTO companies (name, sector, ticker, industry) VALUES (%s, %s, %s, %s) RETURNING id',
+                      (company_data.name, company_data.sector, ticker_val, industry_val))
             company_id = c.fetchone()['id']
         else:
-            c.execute('INSERT INTO companies (name, sector, ticker) VALUES (?, ?, ?)',
-                      (company_data.name, company_data.sector, ticker_val or None))
+            c.execute('INSERT INTO companies (name, sector, ticker, industry) VALUES (?, ?, ?, ?)',
+                      (company_data.name, company_data.sector, ticker_val, industry_val))
             company_id = c.lastrowid
 
         # Insert financials (use execute_query helper to handle placeholders)
@@ -851,7 +895,7 @@ def preview_valuation():
         # Return standardized preview response
         shares = company_data['shares_outstanding']
         return jsonify({
-            'fair_value': round(results.get('dcf_price_per_share', 0), 2),
+            'fair_value': round(results.get('final_price_per_share') or results.get('dcf_price_per_share', 0), 2),
             'upside_pct': round(results.get('upside_pct', 0), 2),
             'wacc': round(results.get('wacc', 0), 4),
             'dcf_value': round(results.get('dcf_price_per_share', 0), 2),

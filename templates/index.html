@@ -19,25 +19,25 @@
             <div class="nav-links">
                 <a href="#" onclick="showView('dashboard')" class="nav-link active" data-view="dashboard">Dashboard</a>
                 <a href="#" onclick="showView('companies')" class="nav-link" data-view="companies">Portfolio</a>
-                <a href="#" onclick="showView('scenarios')" class="nav-link" data-view="scenarios">Scenarios</a>
-                <a href="#" onclick="exportCSV()" class="nav-link">Export Data</a>
+                <a href="#" onclick="showView('scenarios')" class="nav-link" data-view="scenarios" style="display:none">Scenarios</a>
+                <a href="#" onclick="exportCSV()" class="nav-link" style="display:none">Export Data</a>
                 <a href="#" onclick="refreshPrices()" class="nav-link" id="refresh-prices-btn" title="Fetch latest closing prices from Yahoo Finance">&#x21BB; Prices</a>
                 <span id="alerts-badge" onclick="showView('alerts')" style="display:none;cursor:pointer;background:#ef4444;color:white;border-radius:12px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:4px;" title="Unread alerts">0</span>
-                <span style="font-size:12px;color:var(--text-muted);margin-right:4px;" id="mode-label">Student</span>
-                <label style="cursor:pointer;position:relative;display:inline-block;width:42px;height:22px;margin-right:8px;" title="Toggle Student/Professional mode">
+                <span style="display:none" id="mode-label">Student</span>
+                <label style="display:none">
                     <input type="checkbox" id="mode-toggle" onchange="toggleMode()" style="opacity:0;width:0;height:0;">
-                    <span style="position:absolute;inset:0;background:#3b82f6;border-radius:34px;transition:.3s;"></span>
-                    <span id="mode-thumb" style="position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s;"></span>
+                    <span></span>
+                    <span id="mode-thumb"></span>
                 </label>
                 <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">&#9681;</button>
-                <button class="btn-secondary" onclick="showSettingsModal()" title="Portfolio Settings">⚙️ Settings</button>
+                <button class="btn-secondary" onclick="showSettingsModal()" title="Portfolio Settings" style="display:none">⚙️ Settings</button>
             </div>
         </div>
     </nav>
 
 
     <!-- AXIOM Live Rates Bar -->
-    <div id="axiom-rates-bar" style="background:var(--bg-secondary);border-bottom:1px solid var(--border-color);padding:6px 24px;display:flex;gap:24px;align-items:center;font-size:12px;font-family:'Courier New',monospace;">
+    <div id="axiom-rates-bar" style="display:none;background:var(--bg-secondary);border-bottom:1px solid var(--border-color);padding:6px 24px;gap:24px;align-items:center;font-size:12px;font-family:'Courier New',monospace;">
         <span style="color:var(--text-muted);font-family:inherit;font-size:11px;letter-spacing:1px;">LIVE RATES</span>
         <span id="rate-10y">10Y: <strong>—</strong></span>
         <span id="rate-2y">2Y: <strong>—</strong></span>
@@ -69,7 +69,7 @@
         <!-- Dashboard View -->
         <div id="dashboard-view" class="view-section active">
             <!-- Macro Environment Control Panel - Phase 1 -->
-            <div class="macro-control-panel">
+            <div class="macro-control-panel" style="display:none">
                 <div class="macro-header">
                     <h2>🌍 Market Environment</h2>
                     <div id="current-macro-status">
@@ -269,8 +269,19 @@
                         <option value="pe-asc">Sort: P/E (Low-High)</option>
                         <option value="sector">Sort: Sector</option>
                     </select>
+                </div>
+                <div class="toolbar-group">
+                    <button class="btn-select" id="select-mode-btn" onclick="toggleSelectMode()">Select</button>
                     <button class="btn-primary" onclick="showAddCompanyModal()">+ Add Company</button>
                 </div>
+            </div>
+
+            <!-- Bulk action bar (shown only in select mode with ≥1 selection) -->
+            <div id="bulk-action-bar" style="display:none; align-items:center; gap:12px; padding:10px 16px; margin-bottom:12px; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px;">
+                <span id="bulk-count" style="font-size:0.875rem; color:var(--text-muted);">0 selected</span>
+                <button class="btn-danger" onclick="bulkDeleteSelected()" style="font-size:0.8rem; padding:6px 14px;">Remove from portfolio</button>
+                <button class="btn-secondary" onclick="bulkWatchlistSelected()" style="font-size:0.8rem; padding:6px 14px;">⭐ Watchlist</button>
+                <button class="btn-secondary" onclick="clearSelection()" style="font-size:0.8rem; padding:6px 14px;">Clear</button>
             </div>
 
             <div class="companies-header">
@@ -278,7 +289,7 @@
             </div>
 
             <!-- Portfolio Optimization Panel -->
-            <div style="background:var(--card-bg,#161b22);border:1px solid var(--border-color,#30363d);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem">
+            <div style="display:none;background:var(--card-bg,#161b22);border:1px solid var(--border-color,#30363d);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
                     <h3 style="margin:0;font-size:0.95rem">Portfolio Optimization</h3>
                     <button id="axiom-portfolio-optimize-btn" onclick="runPortfolioOptimize()"
@@ -396,7 +407,7 @@
         </div><!-- end workspace-center -->
 
         <!-- Right: Quick Panel -->
-        <div class="workspace-right" id="workspace-right">
+        <div class="workspace-right" id="workspace-right" style="display:none">
             <div class="workspace-right-header">
                 <span>Quick Panel</span>
                 <button class="pane-toggle-btn" onclick="toggleRightPane()" title="Collapse panel">&#x25B6;</button>
@@ -718,18 +729,18 @@
                 <span class="close" onclick="closeValuationModal()">&times;</span>
             </div>
             <div class="modal-body">
-                <!-- AXIOM Valuation Tabs -->
-                <div style="display:flex;gap:0;border-bottom:2px solid var(--border-color);margin-bottom:20px;overflow-x:auto;">
+                <!-- AXIOM Valuation Tabs (hidden until more tabs are enabled) -->
+                <div style="display:none;gap:0;border-bottom:2px solid var(--border-color);margin-bottom:20px;overflow-x:auto;">
                     <button class="axiom-vtab active" data-tab="vtab-dcf" onclick="switchValTab('vtab-dcf',this)" style="padding:8px 20px;border:none;background:transparent;cursor:pointer;font-weight:600;border-bottom:2px solid #3b82f6;color:#3b82f6;white-space:nowrap;">DCF Analysis</button>
-                    <button class="axiom-vtab" data-tab="vtab-lbo" onclick="switchValTab('vtab-lbo',this)" style="padding:8px 20px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);white-space:nowrap;">LBO Model</button>
-                    <button class="axiom-vtab" data-tab="vtab-ff" onclick="switchValTab('vtab-ff',this)" style="padding:8px 20px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);white-space:nowrap;">Football Field</button>
-                    <button class="axiom-vtab" data-tab="vtab-sens" onclick="switchValTab('vtab-sens',this)" style="padding:8px 20px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);white-space:nowrap;">Sensitivity</button>
-                    <button class="axiom-vtab" data-tab="vtab-peers" onclick="switchValTab('vtab-peers',this)" style="padding:8px 20px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);white-space:nowrap;">Peers</button>
-                    <button class="axiom-vtab" data-tab="vtab-ai" onclick="switchValTab('vtab-ai',this)" style="padding:8px 20px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);white-space:nowrap;">&#129302; AI Analyst</button>
-                    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;padding:0 8px;">
-                        <button onclick="axiomExportExcel(currentValuationCompanyId)" style="padding:4px 12px;background:#1a6b3a;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">Excel</button>
-                        <button onclick="axiomExportPDF(currentValuationCompanyId)" style="padding:4px 12px;background:#7c3aed;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">PDF</button>
-                        <button id="axiom-share-btn" onclick="axiomCreateShareLink(currentValuationCompanyId)" style="padding:4px 12px;background:#0e4a6e;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">Share</button>
+                    <button class="axiom-vtab" data-tab="vtab-lbo" onclick="switchValTab('vtab-lbo',this)" style="display:none">LBO Model</button>
+                    <button class="axiom-vtab" data-tab="vtab-ff" onclick="switchValTab('vtab-ff',this)" style="display:none">Football Field</button>
+                    <button class="axiom-vtab" data-tab="vtab-sens" onclick="switchValTab('vtab-sens',this)" style="display:none">Sensitivity</button>
+                    <button class="axiom-vtab" data-tab="vtab-peers" onclick="switchValTab('vtab-peers',this)" style="display:none">Peers</button>
+                    <button class="axiom-vtab" data-tab="vtab-ai" onclick="switchValTab('vtab-ai',this)" style="display:none">AI Analyst</button>
+                    <div style="display:none;margin-left:auto;">
+                        <button onclick="axiomExportExcel(currentValuationCompanyId)">Excel</button>
+                        <button onclick="axiomExportPDF(currentValuationCompanyId)">PDF</button>
+                        <button id="axiom-share-btn" onclick="axiomCreateShareLink(currentValuationCompanyId)">Share</button>
                     </div>
                 </div>
 

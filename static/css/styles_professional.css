@@ -4,24 +4,24 @@
    ============================================ */
 
 :root {
-    /* Light Theme - Primary */
+    /* Light Theme */
     --bg-primary: #ffffff;
     --bg-secondary: #f8fafc;
     --bg-tertiary: #f1f5f9;
     --bg-elevated: #ffffff;
     --bg-hover: #f8fafc;
-    
+
     /* Text Colors */
     --text-primary: #0f172a;
     --text-secondary: #475569;
     --text-tertiary: #94a3b8;
     --text-inverse: #ffffff;
-    
+
     /* Borders */
     --border-primary: #e2e8f0;
     --border-secondary: #cbd5e1;
-    --border-focus: #3b82f6;
-    
+    --border-focus: #111111;
+
     /* Financial Colors */
     --positive: #10b981;
     --positive-bg: #d1fae5;
@@ -31,11 +31,11 @@
     --negative-light: #fca5a5;
     --neutral: #f59e0b;
     --neutral-bg: #fef3c7;
-    
+
     /* Brand Colors */
-    --brand-primary: #3b82f6;
-    --brand-secondary: #8b5cf6;
-    --brand-accent: #06b6d4;
+    --brand-primary: #111111;
+    --brand-secondary: #444444;
+    --brand-accent: #666666;
     
     /* Semantic Colors */
     --buy-strong: #059669;
@@ -58,32 +58,35 @@
 
 /* Dark Theme */
 [data-theme="dark"] {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-tertiary: #334155;
-    --bg-elevated: #1e293b;
-    --bg-hover: #334155;
-    
-    --text-primary: #f1f5f9;
-    --text-secondary: #cbd5e1;
-    --text-tertiary: #64748b;
-    --text-inverse: #0f172a;
-    
-    --border-primary: #334155;
-    --border-secondary: #475569;
-    
+    --bg-primary: #000000;
+    --bg-secondary: #0d0d0d;
+    --bg-tertiary: #1a1a1a;
+    --bg-elevated: #111111;
+    --bg-hover: #1a1a1a;
+
+    --text-primary: #ffffff;
+    --text-secondary: #aaaaaa;
+    --text-tertiary: #666666;
+    --text-inverse: #000000;
+
+    --border-primary: #2a2a2a;
+    --border-secondary: #333333;
+
     --positive: #10b981;
     --positive-bg: rgba(16, 185, 129, 0.15);
     --negative: #ef4444;
     --negative-bg: rgba(239, 68, 68, 0.15);
     --neutral: #f59e0b;
     --neutral-bg: rgba(245, 158, 11, 0.15);
-    
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
-    --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+
+    --brand-primary: #ffffff;
+    --brand-secondary: #aaaaaa;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -1px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.7), 0 4px 6px -2px rgba(0, 0, 0, 0.6);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.8), 0 10px 10px -5px rgba(0, 0, 0, 0.7);
+    --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.6), 0 1px 2px 0 rgba(0, 0, 0, 0.5);
 }
 
 /* ============================================
@@ -178,7 +181,7 @@ body {
 .nav-link.active {
     color: var(--text-inverse);
     background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .theme-toggle {
@@ -271,7 +274,7 @@ body {
 .search-input:focus {
     outline: none;
     border-color: var(--brand-primary);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
     background-color: var(--bg-primary);
 }
 
@@ -296,6 +299,42 @@ body {
     background: var(--brand-primary);
     color: white;
     border-color: var(--brand-primary);
+}
+
+#filter-buy {
+    border-color: #10b981;
+    color: #10b981;
+}
+
+#filter-buy:hover,
+#filter-buy.active {
+    background: #10b981;
+    color: white;
+    border-color: #10b981;
+}
+
+#filter-hold {
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+
+#filter-hold:hover,
+#filter-hold.active {
+    background: #f59e0b;
+    color: white;
+    border-color: #f59e0b;
+}
+
+#filter-sell {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+#filter-sell:hover,
+#filter-sell.active {
+    background: #ef4444;
+    color: white;
+    border-color: #ef4444;
 }
 
 .sort-select {
@@ -639,17 +678,42 @@ body {
     font-size: 0.875rem;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     letter-spacing: -0.01em;
 }
 
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
 .btn-primary:active {
     transform: translateY(0);
+}
+
+.btn-select {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 0.75rem 1.5rem;
+    border: 2px solid var(--border-primary);
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    letter-spacing: -0.01em;
+}
+
+.btn-select:hover {
+    border-color: #111111;
+    color: #111111;
+}
+
+.btn-select.active {
+    background: #111111;
+    color: white;
+    border-color: #111111;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .companies-grid {
@@ -674,6 +738,12 @@ body {
     border-color: var(--brand-primary);
 }
 
+.company-card.selected {
+    border: 3px solid #111111;
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.08);
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.03) 0%, var(--bg-primary) 100%);
+}
+
 .company-card.watchlist::after {
     content: '⭐';
     position: absolute;
@@ -683,9 +753,187 @@ body {
 }
 
 .company-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
     margin-bottom: 1.25rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid var(--border-primary);
+    gap: 0.75rem;
+}
+
+.company-header-left {
+    min-width: 0;
+}
+
+.company-ticker-large {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.25rem;
+    line-height: 1.2;
+}
+
+.company-name-sub {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.company-sector-tag {
+    font-size: 0.65rem;
+    color: var(--text-tertiary);
+    padding: 0.2rem 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.rec-badge-header {
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.rec-badge-header.buy {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.rec-badge-header.hold {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.rec-badge-header.sell {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.company-card.card-border-buy {
+    border-color: #10b981;
+    border-width: 2px;
+}
+
+.company-card.card-border-hold {
+    border-color: #f59e0b;
+    border-width: 2px;
+}
+
+.company-card.card-border-sell {
+    border-color: #ef4444;
+    border-width: 2px;
+}
+
+.price-bubbles {
+    display: flex;
+    gap: 0.625rem;
+    margin: 1.25rem 0;
+}
+
+.price-bubble {
+    flex: 1;
+    padding: 0.875rem 0.5rem;
+    border-radius: 10px;
+    text-align: center;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    transition: all 0.2s ease;
+}
+
+.price-bubble.axiom {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="dark"] .price-bubble.axiom {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.price-bubble.street {
+    background: rgba(245, 158, 11, 0.07);
+    border-color: rgba(245, 158, 11, 0.25);
+}
+
+.bubble-value {
+    font-size: 1.05rem;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+    letter-spacing: -0.01em;
+}
+
+.price-bubble.axiom .bubble-value {
+    color: var(--text-primary);
+}
+
+.price-bubble.street .bubble-value {
+    color: #f59e0b;
+}
+
+.bubble-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    color: var(--text-tertiary);
+}
+
+.upside-row {
+    display: flex;
+    gap: 0.625rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.25rem;
+}
+
+.upside-pill {
+    font-size: 0.8rem;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+}
+
+.upside-pill.positive {
+    background: var(--positive-bg);
+    color: var(--positive);
+}
+
+.upside-pill.negative {
+    background: var(--negative-bg);
+    color: var(--negative);
+}
+
+.card-view-analysis {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-align: right;
+    padding-top: 0.75rem;
+    margin-top: 0.75rem;
+    border-top: 1px solid var(--border-primary);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: color 0.2s;
+}
+
+.company-card:hover .card-view-analysis {
+    color: var(--brand-primary);
 }
 
 .company-name {
@@ -720,7 +968,7 @@ body {
     font-size: 0.75rem;
     color: var(--brand-primary);
     padding: 0.375rem 0.75rem;
-    background: rgba(59, 130, 246, 0.1);
+    background: rgba(0, 0, 0, 0.06);
     border-radius: 6px;
     font-weight: 700;
     font-family: var(--font-mono);
@@ -1034,6 +1282,11 @@ body {
     transform: rotate(90deg);
 }
 
+[data-theme="dark"] .close-btn,
+[data-theme="dark"] .close {
+    color: #000000;
+}
+
 /* ============================================
    FORMS - INSTITUTIONAL
    ============================================ */
@@ -1097,7 +1350,7 @@ body {
 .form-group select:focus {
     outline: none;
     border-color: var(--brand-primary);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
     background: var(--bg-primary);
 }
 
@@ -1126,13 +1379,13 @@ body {
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     font-size: 0.9375rem;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     letter-spacing: -0.01em;
 }
 
 .btn-submit:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
 .btn-submit:active {
@@ -1169,11 +1422,19 @@ body {
 }
 
 .valuation-header {
-    background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
-    color: white;
+    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+    color: var(--text-primary);
     padding: 2rem;
     border-radius: 12px 12px 0 0;
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--border-primary);
+    border-bottom: none;
+}
+
+[data-theme="dark"] .valuation-header {
+    background: linear-gradient(135deg, #1a1a1a, #111111);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .recommendation {
@@ -1579,14 +1840,14 @@ canvas {
     --signal-buy:  rgba(34, 197, 94, 0.18);
     --signal-hold: rgba(251, 191, 36, 0.25);
     --signal-sell: rgba(239, 68, 68, 0.18);
-    --source-badge-bg: rgba(59, 130, 246, 0.12);
+    --source-badge-bg: rgba(0, 0, 0, 0.06);
 }
 
 /* Source attribution badge */
 .source-badge {
     display: inline-block;
     font-size: 10px;
-    color: #3b82f6;
+    color: #111111;
     background: var(--source-badge-bg);
     padding: 1px 6px;
     border-radius: 3px;
@@ -1718,7 +1979,7 @@ body[data-mode="professional"] .student-only { display: none !important; }
 }
 .sidebar-company-item.active {
     background: rgba(59,130,246,0.1);
-    border-left: 3px solid #3b82f6;
+    border-left: 3px solid #111111;
 }
 .sidebar-company-name {
     font-weight: 600;
@@ -1825,4 +2086,74 @@ body[data-mode="professional"] .student-only { display: none !important; }
 @media (max-width: 900px) {
     .workspace-left { display: none; }
     .workspace-center { padding: 16px; }
+}
+
+
+/* ============================================
+   HOVER TOOLTIPS
+   ============================================ */
+
+.axiom-tip {
+    position: relative;
+    cursor: help;
+}
+
+.axiom-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.5;
+    width: 320px;
+    box-shadow: var(--shadow-xl);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+    z-index: 99999;
+    pointer-events: none;
+}
+
+.axiom-tip:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ============================================
+   RECOMMENDATION-BASED MODAL STYLING
+   ============================================ */
+
+/* Modal borders based on recommendation */
+.modal-content.rec-buy {
+    border: 2px solid var(--positive);
+}
+
+.modal-content.rec-hold {
+    border: 2px solid var(--neutral);
+}
+
+.modal-content.rec-sell {
+    border: 2px solid var(--negative);
+}
+
+/* Recommendation text colors */
+.valuation-header.rec-buy .recommendation,
+.valuation-header.rec-buy .upside {
+    color: var(--positive);
+}
+
+.valuation-header.rec-hold .recommendation,
+.valuation-header.rec-hold .upside {
+    color: var(--neutral);
+}
+
+.valuation-header.rec-sell .recommendation,
+.valuation-header.rec-sell .upside {
+    color: var(--negative);
 }

@@ -174,6 +174,8 @@ class DataIntegrator:
                 data['revenue'] = latest_financials.get('Total Revenue', 0)
                 data['ebitda'] = latest_financials.get('EBITDA', 0)
                 data['operating_income'] = latest_financials.get('Operating Income', 0)
+                raw_ie = latest_financials.get('Interest Expense', 0) or 0
+                data['interest_expense'] = abs(float(raw_ie))
 
                 net_income = latest_financials.get('Net Income', 0)
                 data['net_income'] = net_income
@@ -190,6 +192,7 @@ class DataIntegrator:
                 data['revenue'] = info.get('totalRevenue', 0)
                 data['ebitda'] = info.get('ebitda', 0)
                 data['operating_income'] = 0
+                data['interest_expense'] = 0
                 data['net_income'] = 0
                 data['profit_margin'] = 0.10
                 data['ebitda_history'] = []
@@ -236,7 +239,7 @@ class DataIntegrator:
             data['shares_outstanding'] = info.get('sharesOutstanding', 1_000_000)
 
             # Growth rates from analyst estimates
-            growth_estimates = self._get_growth_estimates(info, financials)
+            growth_estimates = self._get_growth_estimates(info, financials, stock=stock)
             data['growth_rate_y1'] = growth_estimates['y1']
             data['growth_rate_y2'] = growth_estimates['y2']
             data['growth_rate_y3'] = growth_estimates['y3']
@@ -274,6 +277,13 @@ class DataIntegrator:
                 data['analyst_recommendation'] = None
                 data['implied_growth_rate'] = None
 
+            # B2-2: Detect non-USD financial reporting currency
+            # Chinese ADRs (BABA, JD, BIDU etc.) report financials in CNY.
+            # Our DCF will compute in CNY but the stock trades in USD.
+            # We flag this so calibrate() can force a heavy analyst anchor.
+            fin_currency = info.get('financialCurrency', 'USD') or 'USD'
+            data['financial_currency'] = fin_currency
+
             # Additional metadata
             data['data_source'] = 'Yahoo Finance'
             data['last_updated'] = datetime.now().isoformat()
@@ -285,56 +295,147 @@ class DataIntegrator:
             logger.error(f"Error fetching data for {ticker}: {str(e)}", exc_info=True)
             return None
 
-    def _get_growth_estimates(self, info: dict, financials: pd.DataFrame) -> Dict[str, float]:
+    def _get_growth_estimates(self, info: dict, financials: pd.DataFrame, stock=None) -> Dict[str, float]:
         """
-        Estimate revenue growth rates from analyst estimates and historical trends.
-        Uses 2yr CAGR fallback when yfinance revenueGrowth is zero/negative.
-        """
-        try:
-            analyst_growth = info.get('revenueGrowth')
+        Forward revenue growth from analyst consensus (primary), with trailing fallbacks.
 
-            # 2yr CAGR from financials (more reliable than 1yr for cyclical/reset years)
-            cagr_2yr = None
-            if not financials.empty and len(financials.columns) >= 3:
+        Source priority:
+          1. stock.revenue_estimate +1y growth  (forward analyst consensus, n >= 3)
+          2. stock.revenue_estimate  0y growth  (current fiscal year, n >= 2)
+          3. info earningsGrowth * 0.60         (earnings proxy, scaled down)
+          4. 2yr trailing CAGR from financials
+          5. 1yr trailing growth from financials
+          6. Floor: 3% profitable, 0% loss-making
+
+        Y2 / Y3 converge toward terminal (not arbitrary %-decay).
+        """
+        TERMINAL_DEFAULT = 0.025  # ml_engine.calibrate() overrides per sector tag
+
+        # ── Source 1 & 2: forward revenue estimate from analyst consensus ──────
+        fwd_1y = None   # next fiscal year
+        fwd_0y = None   # current fiscal year (partially forward)
+        n_1y   = 0      # analyst count for +1y (separate from 0y)
+        n_0y   = 0      # analyst count for  0y
+
+        if stock is not None:
+            try:
+                re = stock.revenue_estimate
+                if re is not None and not re.empty:
+                    has_growth = 'growth' in re.columns
+                    has_n      = 'numberOfAnalysts' in re.columns
+
+                    if '+1y' in re.index and has_growth:
+                        try:
+                            g = re.loc['+1y', 'growth']
+                            # Guard: .loc can return a Series on duplicate index rows
+                            if hasattr(g, '__len__'):
+                                g = g.iloc[0]
+                            if g is not None and not (isinstance(g, float) and np.isnan(g)):
+                                g = float(g)
+                                if -0.50 < g < 2.0:
+                                    fwd_1y = g
+                                    # If analyst count unavailable/NaN, treat as 1 — estimate exists
+                                    n_1y = 1
+                                    if has_n:
+                                        raw_n = re.loc['+1y', 'numberOfAnalysts']
+                                        if hasattr(raw_n, '__len__'):
+                                            raw_n = raw_n.iloc[0]
+                                        if raw_n is not None and not (isinstance(raw_n, float) and np.isnan(raw_n)):
+                                            n_1y = max(1, int(raw_n))
+                        except Exception as e:
+                            logger.debug(f'revenue_estimate +1y parse error: {e}')
+
+                    if '0y' in re.index and has_growth:
+                        try:
+                            g = re.loc['0y', 'growth']
+                            if hasattr(g, '__len__'):
+                                g = g.iloc[0]
+                            if g is not None and not (isinstance(g, float) and np.isnan(g)):
+                                g = float(g)
+                                if -0.50 < g < 2.0:
+                                    fwd_0y = g
+                                    n_0y = 1
+                                    if has_n:
+                                        raw_n = re.loc['0y', 'numberOfAnalysts']
+                                        if hasattr(raw_n, '__len__'):
+                                            raw_n = raw_n.iloc[0]
+                                        if raw_n is not None and not (isinstance(raw_n, float) and np.isnan(raw_n)):
+                                            n_0y = max(1, int(raw_n))
+                        except Exception as e:
+                            logger.debug(f'revenue_estimate 0y parse error: {e}')
+
+            except Exception as e:
+                logger.debug(f'revenue_estimate fetch failed: {e}')
+
+        # ── Source 3: 2yr forward earnings growth proxy (last resort before trailing) ──
+        # earningsGrowth in yfinance is trailing quarterly YoY — not a true forward.
+        # Only use if it looks plausible (tight bounds) and no forward revenue exists.
+        earnings_proxy = None
+        eg = info.get('earningsGrowth')
+        if eg is not None and 0.0 < eg < 1.50:   # exclude wild outliers and negatives
+            earnings_proxy = float(eg) * 0.55     # earnings grow faster than revenue; scale down
+
+        # ── Source 4 & 5: trailing from financials ────────────────────────────
+        cagr_2yr = None
+        hist_1yr = None
+        if not financials.empty:
+            if len(financials.columns) >= 3:
                 r0 = financials.iloc[:, 0].get('Total Revenue', 0)
                 r2 = financials.iloc[:, 2].get('Total Revenue', 0)
                 if r0 and r2 and r2 > 0 and r0 > 0:
                     cagr_2yr = (r0 / r2) ** 0.5 - 1
-
-            # 1yr historical as secondary fallback
-            hist_1yr = None
-            if not financials.empty and len(financials.columns) >= 2:
+            if len(financials.columns) >= 2:
                 r0 = financials.iloc[:, 0].get('Total Revenue', 0)
                 r1 = financials.iloc[:, 1].get('Total Revenue', 1)
                 if r0 and r1 and r1 > 0:
                     hist_1yr = r0 / r1 - 1
 
-            # Pick best estimate
-            if analyst_growth and analyst_growth > 0:
-                y1_growth = analyst_growth
-            elif cagr_2yr and cagr_2yr > 0:
-                y1_growth = cagr_2yr
-            elif hist_1yr and hist_1yr > 0:
-                y1_growth = hist_1yr
-            else:
-                # Growth is negative or missing — use floor
-                net_income = info.get('netIncomeToCommon', 0) or 0
-                y1_growth = 0.03 if net_income > 0 else 0.0
+        # ── Pick Y1 in priority order ─────────────────────────────────────────
+        if fwd_1y is not None and n_1y >= 3:
+            y1_growth = fwd_1y
+            logger.debug(f'Growth Y1: forward +1y consensus ({n_1y} analysts): {y1_growth:.1%}')
+        elif fwd_0y is not None and n_0y >= 3:
+            y1_growth = fwd_0y
+            logger.debug(f'Growth Y1: forward 0y consensus ({n_0y} analysts): {y1_growth:.1%}')
+        elif fwd_1y is not None and n_1y >= 1:
+            # Thin coverage but still a forward signal — better than trailing
+            y1_growth = fwd_1y
+            logger.debug(f'Growth Y1: forward +1y low-coverage ({n_1y} analysts): {y1_growth:.1%}')
+        elif fwd_0y is not None and n_0y >= 1:
+            y1_growth = fwd_0y
+            logger.debug(f'Growth Y1: forward 0y low-coverage ({n_0y} analysts): {y1_growth:.1%}')
+        elif earnings_proxy is not None:
+            y1_growth = earnings_proxy
+            logger.debug(f'Growth Y1: earnings proxy: {y1_growth:.1%}')
+        elif info.get('revenueGrowth') and info['revenueGrowth'] > 0:
+            y1_growth = float(info['revenueGrowth'])
+            logger.debug(f'Growth Y1: trailing revenueGrowth from info: {y1_growth:.1%}')
+        elif cagr_2yr is not None and cagr_2yr > 0:
+            y1_growth = cagr_2yr
+            logger.debug(f'Growth Y1: trailing 2yr CAGR: {y1_growth:.1%}')
+        elif hist_1yr is not None and hist_1yr > 0:
+            y1_growth = hist_1yr
+            logger.debug(f'Growth Y1: trailing 1yr: {y1_growth:.1%}')
+        else:
+            net_income = info.get('netIncomeToCommon', 0) or 0
+            y1_growth = 0.03 if net_income > 0 else 0.0
+            logger.debug(f'Growth Y1: floor ({y1_growth:.1%})')
 
-            y1_growth = max(0.0, min(y1_growth, 0.60))
-            y2_growth = y1_growth * 0.85
-            y3_growth = y1_growth * 0.70
-            terminal_growth = 0.025
+        y1_growth = max(0.0, min(y1_growth, 0.60))
 
-            return {
-                'y1': y1_growth,
-                'y2': y2_growth,
-                'y3': y3_growth,
-                'terminal': terminal_growth
-            }
-        except Exception as e:
-            logger.warning(f"Could not estimate growth rates: {e}")
-            return {'y1': 0.08, 'y2': 0.06, 'y3': 0.05, 'terminal': 0.025}
+        # ── Y2 / Y3: converge toward terminal, not a blind % decay ───────────
+        # Y2 = 2/3 of the way from Y1 toward terminal
+        # Y3 = 1/3 of the way from Y1 toward terminal  (nearest to terminal)
+        t = TERMINAL_DEFAULT
+        y2_growth = y1_growth * 0.67 + t * 0.33
+        y3_growth = y1_growth * 0.33 + t * 0.67
+
+        return {
+            'y1': round(y1_growth, 4),
+            'y2': round(y2_growth, 4),
+            'y3': round(y3_growth, 4),
+            'terminal': t,
+        }
 
     def _estimate_tax_rate(self, financials: pd.DataFrame, info: dict) -> float:
         """Calculate effective tax rate from financial statements"""
