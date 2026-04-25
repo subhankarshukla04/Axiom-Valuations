@@ -197,6 +197,12 @@ body {
     padding: 1.5rem;
     transition: all 0.3s;
     cursor: pointer;
+    position: relative;
+}
+
+.company-card.selected {
+    border-color: #667eea;
+    background: rgba(102, 126, 234, 0.05);
 }
 
 .company-card:hover {

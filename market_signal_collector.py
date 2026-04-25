@@ -6,7 +6,7 @@ Feeds Layer 1 of the calibration architecture.
 
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 import yfinance as yf
@@ -27,7 +27,7 @@ def collect_signals(ticker: str) -> Dict:
 
         signals = {
             'ticker': ticker.upper(),
-            'collected_at': datetime.utcnow().isoformat(),
+            'collected_at': datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
             'analyst_target_mean': info.get('targetMeanPrice'),
             'analyst_target_median': info.get('targetMedianPrice'),
             'analyst_target_high': info.get('targetHighPrice'),
@@ -91,7 +91,7 @@ def collect_signals(ticker: str) -> Dict:
 
     except Exception as e:
         logger.error(f'collect_signals failed for {ticker}: {e}')
-        return {'ticker': ticker.upper(), 'collected_at': datetime.utcnow().isoformat()}
+        return {'ticker': ticker.upper(), 'collected_at': datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}
 
 
 def _reverse_dcf(target_equity: float, revenue: float, ebitda_margin: float,
@@ -157,7 +157,7 @@ def get_cached_signals(ticker: str) -> Optional[Dict]:
         collected_at = row[10]
         if isinstance(collected_at, str):
             collected_at = datetime.fromisoformat(collected_at)
-        if datetime.utcnow() - collected_at.replace(tzinfo=None) > timedelta(hours=SIGNAL_CACHE_HOURS):
+        if datetime.now(timezone.utc).replace(tzinfo=None) - collected_at.replace(tzinfo=None) > timedelta(hours=SIGNAL_CACHE_HOURS):
             return None
 
         return {

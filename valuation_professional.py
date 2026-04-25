@@ -27,26 +27,61 @@ def get_choice(prompt, valid_choices):
 			return choice
 		print(f"Please enter one of: {', '.join(valid_choices)}")
 
-def calculate_wacc(risk_free_rate, beta, market_risk_premium, debt, equity_value, tax_rate,
-                   country_risk=0, size_premium=0, leverage_penalty=0):
-	"""Calculate Weighted Average Cost of Capital using CAPM + Blume-adjusted beta"""
-	# Cost of Equity using CAPM
+def synthetic_cost_of_debt(operating_income: float, interest_expense: float, risk_free_rate: float) -> float:
+	"""
+	Damodaran synthetic credit rating approach.
+	Interest Coverage = EBIT / Interest Expense → letter rating → credit spread.
+	Used in place of a hardcoded spread assumption.
+	"""
+	if interest_expense <= 0:
+		return risk_free_rate + 0.010  # no debt / net-cash company → near risk-free
+
+	# Banks report depositor interest as "interest expense" — can be enormous vs. EBIT.
+	# Banks never reach DCF in our model (they use P/B path), but guard defensively.
+	if interest_expense > 10e9 and operating_income <= 0:
+		return risk_free_rate + 0.015
+	if operating_income > 0 and interest_expense > operating_income * 20:
+		return risk_free_rate + 0.015
+
+	coverage = operating_income / interest_expense
+
+	# Damodaran coverage-to-spread table (large/mid-cap, 2024 calibration)
+	if coverage > 8.5:    spread = 0.0060   # AAA
+	elif coverage > 6.5:  spread = 0.0090   # AA
+	elif coverage > 5.5:  spread = 0.0110   # A+
+	elif coverage > 4.25: spread = 0.0140   # A
+	elif coverage > 3.0:  spread = 0.0160   # A-
+	elif coverage > 2.5:  spread = 0.0200   # BBB
+	elif coverage > 2.0:  spread = 0.0240   # BB+
+	elif coverage > 1.5:  spread = 0.0275   # BB
+	elif coverage > 1.25: spread = 0.0325   # B+
+	elif coverage > 0.8:  spread = 0.0400   # B
+	elif coverage > 0.5:  spread = 0.0475   # B-
+	elif coverage > 0.0:  spread = 0.0700   # CCC
+	else:                 spread = 0.1500   # D — negative EBIT, severe distress
+
+	return risk_free_rate + spread
+
+
+def calculate_wacc(risk_free_rate, beta, market_risk_premium, debt, cash, equity_value, tax_rate,
+                   country_risk=0, size_premium=0, leverage_penalty=0,
+                   interest_expense=0, operating_income=0):
+	"""Calculate WACC using CAPM for equity and Damodaran synthetic rating for debt."""
 	cost_of_equity = risk_free_rate + beta * market_risk_premium + country_risk + size_premium
-	
-	# Cost of Debt (simplified as risk-free + credit spread in decimal format)
-	credit_spread = 0.025 if debt > equity_value else 0.015  # 2.5% or 1.5% in decimal
-	cost_of_debt = risk_free_rate + credit_spread
-	
-	# WACC calculation
-	total_value = debt + equity_value
+
+	cost_of_debt = synthetic_cost_of_debt(operating_income, interest_expense, risk_free_rate)
+
+	# Use net debt for weights — net-cash companies have zero debt weight
+	net_debt = max(0.0, debt - cash)
+	total_value = net_debt + equity_value
 	if total_value == 0:
-		return cost_of_equity
-	
+		return cost_of_equity, cost_of_equity, cost_of_debt
+
 	weight_equity = equity_value / total_value
-	weight_debt = debt / total_value
-	
+	weight_debt   = net_debt / total_value
+
 	wacc = (weight_equity * cost_of_equity) + (weight_debt * cost_of_debt * (1 - tax_rate))
-	wacc += leverage_penalty  # telecom/high-leverage penalty
+	wacc += leverage_penalty
 
 	return wacc, cost_of_equity, cost_of_debt
 
@@ -162,7 +197,8 @@ def enhanced_dcf_valuation(company_data):
 			analyst_target = company_data.get('analyst_target')
 			# Anchor alt model to analyst consensus
 			final_price = _ml.apply_analyst_anchor(alt_price, analyst_target,
-			                                        company_data.get('company_type', 'STABLE_VALUE'))
+			                                        company_data.get('company_type', 'STABLE_VALUE'),
+			                                        company_data)
 			upside = ((final_price * shares - market_cap) / market_cap * 100) if market_cap > 0 else 0
 			final_price = _ml.apply_ml_correction(final_price, company_data)
 			company_data['dcf_price_per_share'] = alt_price
@@ -263,10 +299,14 @@ def enhanced_dcf_valuation(company_data):
 	print(f"{'=' * 80}")
 	
 	# Calculate WACC
-	leverage_penalty = float(company_data.get('leverage_wacc_penalty', 0))
+	leverage_penalty  = float(company_data.get('leverage_wacc_penalty', 0))
+	interest_expense  = float(company_data.get('interest_expense', 0) or 0)
+	operating_income  = float(company_data.get('operating_income', 0) or 0)
 	wacc, cost_of_equity, cost_of_debt = calculate_wacc(
-		rf_rate, beta, mrp, debt, market_cap, tax_rate, country_risk, size_premium,
-		leverage_penalty=leverage_penalty
+		rf_rate, beta, mrp, debt, cash, market_cap, tax_rate, country_risk, size_premium,
+		leverage_penalty=leverage_penalty,
+		interest_expense=interest_expense,
+		operating_income=operating_income,
 	)
 
 	# Apply guardrails (clamp WACC and terminal growth to safe ranges)
@@ -399,9 +439,14 @@ def enhanced_dcf_valuation(company_data):
 		analyst_target = company_data.get('analyst_target')
 		company_type = company_data.get('company_type', 'STABLE_VALUE')
 		final_price_per_share = _ml.apply_analyst_anchor(
-			final_price_per_share, analyst_target, company_type
+			final_price_per_share, analyst_target, company_type, company_data
 		)
 		final_price_per_share = _ml.apply_ml_correction(final_price_per_share, company_data)
+		# B2-5: Sanity guardrail — catches data anomalies (DKS $1381, TPR $44)
+		current_market_price = company_data.get('current_price', 0)
+		final_price_per_share, _flagged = _ml.apply_sanity_guardrail(
+			final_price_per_share, analyst_target, current_market_price
+		)
 		final_equity_value = final_price_per_share * shares
 	
 	# Calculate comprehensive ratios
