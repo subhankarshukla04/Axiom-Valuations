@@ -57,7 +57,7 @@ class ValuationService:
             placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
             cursor.execute(f'''
                 SELECT
-                    c.id, c.name, c.sector,
+                    c.id, c.name, c.sector, c.ticker, c.industry,
                     cf.revenue, cf.ebitda, cf.depreciation,
                     cf.capex_pct, cf.working_capital_change, cf.profit_margin,
                     cf.growth_rate_y1, cf.growth_rate_y2, cf.growth_rate_y3,
@@ -97,8 +97,8 @@ class ValuationService:
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT 
-                    c.id, c.name, c.sector,
+                SELECT
+                    c.id, c.name, c.sector, c.ticker, c.industry,
                     cf.revenue, cf.ebitda, cf.depreciation,
                     cf.capex_pct, cf.working_capital_change, cf.profit_margin,
                     cf.growth_rate_y1, cf.growth_rate_y2, cf.growth_rate_y3,
@@ -181,13 +181,14 @@ class ValuationService:
             
             # Insert valuation results
             placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
-            placeholders = ', '.join([placeholder] * 21)
+            placeholders = ', '.join([placeholder] * 25)
             cursor.execute(f'''
                 INSERT INTO valuation_results (
                     company_id, dcf_equity_value, dcf_price_per_share, comp_ev_value,
                     comp_pe_value, final_equity_value, final_price_per_share, market_cap,
                     current_price, upside_pct, recommendation, wacc, ev_ebitda, pe_ratio,
-                    fcf_yield, roe, roic, debt_to_equity, z_score, mc_p10, mc_p90
+                    fcf_yield, roe, roic, debt_to_equity, z_score, mc_p10, mc_p90,
+                    sub_sector_tag, company_type, ebitda_method, analyst_target
                 ) VALUES ({placeholders})
             ''', (
                 company_id,
@@ -210,7 +211,11 @@ class ValuationService:
                 results.get('debt_to_equity'),
                 results.get('z_score'),
                 results.get('mc_p10'),
-                results.get('mc_p90')
+                results.get('mc_p90'),
+                results.get('sub_sector_tag'),
+                results.get('company_type'),
+                results.get('ebitda_method'),
+                results.get('analyst_target')
             ))
             
             conn.commit()
@@ -322,10 +327,11 @@ class ValuationService:
             conn = self.get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('''
+            placeholder = '%s' if Config.DATABASE_TYPE == 'postgresql' else '?'
+            cursor.execute(f'''
                 SELECT * FROM valuation_results
-                WHERE company_id = ?
-                ORDER BY created_at DESC
+                WHERE company_id = {placeholder}
+                ORDER BY id DESC
                 LIMIT 1
             ''', (company_id,))
             
@@ -357,7 +363,7 @@ class ValuationService:
             logger.info(f"No valuation found for company ID {company_id} - marked as stale")
             return True
         
-        valuation_date = latest_valuation.get('created_at', '')
+        valuation_date = latest_valuation.get('valuation_date', '') or latest_valuation.get('created_at', '')
         
         # Compare timestamps
         if valuation_date < updated_at:

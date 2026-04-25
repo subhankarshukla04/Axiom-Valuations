@@ -70,11 +70,15 @@ TICKER_TAG_MAP: Dict[str, str] = {
     'PARA': 'media_cable', 'FOX': 'media_cable',
     # Streaming
     'NFLX': 'streaming_media', 'ROKU': 'streaming_media',
-    # Banks
+    # Commercial banks (pure lending/deposit institutions)
     'JPM': 'commercial_bank', 'BAC': 'commercial_bank', 'WFC': 'commercial_bank',
     'C': 'commercial_bank', 'USB': 'commercial_bank', 'PNC': 'commercial_bank',
     'TFC': 'commercial_bank', 'COF': 'commercial_bank',
     'GS': 'invest_bank', 'MS': 'invest_bank', 'SCHW': 'invest_bank',
+    # P&C / Life insurers — different model from commercial banks (higher P/B, underwriting-driven)
+    'TRV': 'pc_insurance', 'HIG': 'pc_insurance', 'AFL': 'pc_insurance',
+    'ALL': 'pc_insurance', 'CB': 'pc_insurance', 'MET': 'pc_insurance',
+    'PRU': 'pc_insurance', 'GL': 'pc_insurance', 'UNM': 'pc_insurance',
     # Payments
     'V': 'payment_net', 'MA': 'payment_net', 'AXP': 'payment_net',
     'PYPL': 'payment_net', 'FIS': 'payment_net', 'FI': 'payment_net',
@@ -137,15 +141,32 @@ TICKER_TAG_MAP: Dict[str, str] = {
     'COP': 'energy_ep', 'EOG': 'energy_ep', 'PXD': 'energy_ep',
     'DVN': 'energy_ep', 'FANG': 'energy_ep', 'APA': 'energy_ep',
     'SLB': 'oilfield_svc', 'HAL': 'oilfield_svc', 'BKR': 'oilfield_svc',
-    # Growth / loss
+    # Growth / loss (loss-making platforms/fintechs — use analyst anchor)
     'UBER': 'growth_loss', 'PLTR': 'growth_loss', 'PATH': 'growth_loss',
     'LYFT': 'growth_loss', 'DASH': 'growth_loss', 'ABNB': 'growth_loss',
+    'AFRM': 'growth_loss', 'SOFI': 'growth_loss', 'PINS': 'growth_loss',
+    'RIVN': 'growth_loss',  # EV startup — analyst anchor only
     # Apparel
     'NKE': 'apparel_brand', 'LULU': 'apparel_brand', 'RL': 'apparel_brand',
     'PVH': 'apparel_brand', 'HBI': 'apparel_brand',
+    # Luxury fashion brands (different multiple from apparel_brand)
+    'TPR': 'luxury_brand', 'CPRI': 'luxury_brand',
+    'KORS': 'luxury_brand', 'RH': 'luxury_brand',
     # Streaming / data
-    'NFLX': 'streaming_media', 'SPOT': 'streaming_media',
+    'NFLX': 'streaming_media', 'SPOT': 'music_platform',
     'TTD': 'data_analytics',
+    # Airlines (B2-1: separate from industrial_cong)
+    'DAL': 'airline', 'UAL': 'airline', 'LUV': 'airline', 'AAL': 'airline',
+    'ALK': 'airline', 'JBLU': 'airline', 'SAVE': 'airline', 'HA': 'airline',
+    # Crypto treasury proxy companies (B2-3: no DCF — analyst anchor only)
+    'MSTR': 'crypto_proxy', 'RIOT': 'crypto_proxy', 'MARA': 'crypto_proxy',
+    'CLSK': 'crypto_proxy', 'BITF': 'crypto_proxy', 'COIN': 'exchange',
+    # Hospital operators (B2-6: high-debt healthcare services)
+    'HCA': 'hospital_operator', 'THC': 'hospital_operator',
+    'UHS': 'hospital_operator', 'CYH': 'hospital_operator', 'ENSG': 'hospital_operator',
+    # Rule-of-40 SaaS — mid-growth, valued on EV/Revenue (B2-6)
+    'BILL': 'rule40_saas', 'HUBS': 'rule40_saas', 'ZI': 'rule40_saas',
+    'BRZE': 'rule40_saas', 'PCTY': 'rule40_saas', 'SAMSARA': 'rule40_saas',
 }
 
 # ---------------------------------------------------------------------------
@@ -168,6 +189,7 @@ SUBSECTOR_MULT: Dict[str, Tuple] = {
     'streaming_media':   (22.0, 30.0, 0.12),
     'commercial_bank':   (None, None, 0.06),
     'invest_bank':       (None, None, 0.08),
+    'pc_insurance':      (None, None, 0.05),   # P&C/life insurers: P/B model like banks
     'payment_net':       (24.0, 32.0, 0.12),
     'asset_mgmt':        (18.0, 24.0, 0.08),
     'data_analytics':    (26.0, 34.0, 0.10),
@@ -194,7 +216,7 @@ SUBSECTOR_MULT: Dict[str, Tuple] = {
     'exchange':             (22.0, 28.0, 0.10),   # monopoly franchise premium
     'hotel_resort':         (14.0, 20.0, 0.06),   # asset-light lodging
     'gaming':               (12.0, 16.0, 0.04),   # cyclical leisure
-    'packaging':            (9.0,  13.0, 0.03),   # industrial commodity
+    'packaging':            (13.0, 21.0, 0.04),   # specialty labeling/materials (AVY-class); commodity can is 8-10x but AVY/PKG trade at 13-15x
     'industrial_dist':      (14.0, 18.0, 0.05),   # distribution margin business
     'logistics_ltl':        (14.0, 20.0, 0.08),   # LTL: pricing power, growing
     'logistics_parcel':     (10.0, 16.0, 0.03),   # parcel: commoditized, mature
@@ -202,16 +224,96 @@ SUBSECTOR_MULT: Dict[str, Tuple] = {
     'security_cloud':       (30.0, 45.0, 0.28),   # ARR-driven, high growth premium
     'legacy_tech':          (9.0,  13.0, 0.02),   # ex-growth, declining margin
     'distressed_industrial': (6.0,  10.0, 0.01),  # BA-class: high debt, losses
+    # Batch-2 new sub-sectors
+    'airline':          (7.0,  10.0, 0.04),   # EV/EBITDA 6-8x; thin margin, cyclical
+    'luxury_brand':     (17.0, 25.0, 0.08),   # Coach/Versace-class; brand premium
+    'music_platform':   (28.0, 40.0, 0.20),   # Spotify: platform economics, margin ramp
+    'crypto_proxy':     (None, None, 0.0),     # Bitcoin treasury: analyst anchor only
+    'hospital_operator':(9.0,  13.0, 0.05),   # HCA/THC: high revenue, leveraged
+    'rule40_saas':      (None, None, 0.25),    # EV/Revenue model (mid-growth SaaS)
 }
 
 # Tags where 3yr avg is always used regardless of trend (cycle averaging is the point)
 CYCLICAL_TAGS = frozenset({
     'heavy_machinery', 'industrial_cong', 'energy_major', 'energy_ep',
     'oilfield_svc', 'auto_legacy', 'defense', 'logistics',
+    # NOTE: 'airline' intentionally excluded — airlines are in POST-COVID IMPROVING trend.
+    # Three-state EBITDA logic (em:trend) correctly picks most recent year for airlines.
+    # Forcing 3yr avg would include COVID-era losses and destroy the valuation.
 })
 
 # Tags where EBITDA trend is structurally declining — use most recent year
 SECULAR_DECLINE_TAGS = frozenset({'media_cable', 'telecom_carrier', 'tobacco'})
+
+# Sector-specific terminal growth rates — reflects each industry's long-run GDP-relative position.
+# calibrate() sets terminal_growth from this dict and recomputes Y2/Y3 to converge toward it.
+TERMINAL_GROWTH_BY_TAG: Dict[str, float] = {
+    # High-growth tech — secular tailwinds, above-GDP long-run
+    'cloud_saas':          0.030,
+    'cloud_software':      0.028,
+    'fabless_semi':        0.028,
+    'security_cloud':      0.030,
+    'digital_platform':    0.028,
+    'ecommerce_cloud':     0.028,
+    'rule40_saas':         0.028,
+    'music_platform':      0.030,
+    'mature_semi':         0.025,
+    'semi_equipment':      0.025,
+    'IDM_semi':            0.020,
+    'growth_loss':         0.025,
+    # Financial services
+    'payment_net':         0.025,
+    'asset_mgmt':          0.022,
+    'data_analytics':      0.025,
+    'exchange':            0.025,
+    'commercial_bank':     0.022,
+    'invest_bank':         0.022,
+    'pc_insurance':        0.022,
+    # Healthcare
+    'pharma':              0.022,
+    'biotech_device':      0.025,
+    'health_insurance':    0.022,
+    'hospital_operator':   0.022,
+    # Consumer
+    'consumer_staples':    0.020,
+    'tobacco':             0.010,
+    'retail_bigbox':       0.022,
+    'membership_retail':   0.025,
+    'franchise_rest':      0.022,
+    'apparel_brand':       0.022,
+    'luxury_brand':        0.025,
+    'hotel_resort':        0.022,
+    'gaming':              0.020,
+    # Industrials
+    'industrial_cong':     0.022,
+    'heavy_machinery':     0.022,
+    'defense':             0.022,
+    'logistics_ltl':       0.022,
+    'logistics_parcel':    0.018,
+    'logistics':           0.020,
+    'industrial_dist':     0.022,
+    'packaging':           0.018,
+    # Energy — long-run demand ceiling
+    'energy_ep':           0.010,
+    'energy_major':        0.010,
+    'oilfield_svc':        0.012,
+    # Telecom / media — mature or declining
+    'telecom_carrier':     0.015,
+    'media_cable':         0.005,
+    'streaming_media':     0.025,
+    'legacy_tech':         0.015,
+    # Regulated / REITs
+    'utility_regulated':   0.020,
+    'reit':                0.020,
+    # Transport
+    'airline':             0.018,
+    'auto_legacy':         0.018,
+    'story_auto':          0.020,
+    # Specialty
+    'crypto_proxy':        0.010,
+    'distressed_industrial': 0.015,
+}
+# Default for any tag not listed above: 0.025
 
 # Normalized capex rates (long-run steady state per sub-sector)
 SECTOR_CAPEX_NORM: Dict[str, float] = {
@@ -227,29 +329,50 @@ SECTOR_CAPEX_NORM: Dict[str, float] = {
     'logistics': 0.05, 'heavy_machinery': 0.06, 'industrial_cong': 0.05,
     'energy_major': 0.12, 'energy_ep': 0.12, 'oilfield_svc': 0.08,
     'growth_loss': 0.05, 'apparel_brand': 0.03,
+    'airline': 0.08, 'luxury_brand': 0.03, 'music_platform': 0.04,
+    'crypto_proxy': 0.02, 'hospital_operator': 0.05, 'rule40_saas': 0.04,
+    'pc_insurance': 0.02,
 }
 
 # P/Book multiples for banks (use instead of DCF/EBITDA)
 SECTOR_PB: Dict[str, float] = {
     'commercial_bank': 1.4,   # median large-cap commercial bank
     'invest_bank': 1.1,       # IB-heavy model; calibration correction handles residual
+    'pc_insurance':  1.5,     # P&C/life: underwriting profit drives premium; 1.3-1.7x range
 }
 
 # Per-ticker P/B overrides — take precedence over SECTOR_PB
-# Rationale: JPM commands structural premium (ROE ~15%+, best franchise);
+# Rationale: JPM commands structural premium (ROE ~17%+, best franchise);
 # C trades at persistent discount (complexity, international exposure).
 TICKER_PB: Dict[str, float] = {
-    'JPM': 2.5,   # premier bank; empirically trades ~2.5x book
+    'JPM': 3.5,   # best-in-class franchise; empirically trades ~3.5x book (2yr backtest confirmed)
     'BAC': 1.3,
     'WFC': 1.2,   # recovering from sales scandal; moderate premium
     'C':   0.8,   # persistent discount; restructuring drag
     'GS':  1.1,   # IB-heavy; volatile earnings → lower P/B
     'MS':  1.4,   # wealth management division earns premium
+    'TRV': 1.8,   # top-quartile underwriting; Buffett-quality P&C franchise
+    'CB':  1.7,   # Chubb: global specialty lines; consistent combined ratio <90
+    'SCHW': 3.0,  # brokerage/custodian, not IB; asset-gathering model trades at ~3x book
+    'AMTD': 2.5,  # similar custodian model
 }
 
-# P/FFO multiples for REITs
+# P/FFO multiples for REITs — varies significantly by REIT sub-type
 SECTOR_PFFO: Dict[str, float] = {
-    'reit': 18.0,
+    'reit': 20.0,  # default (retail/diversified)
+}
+# Per-ticker P/FFO — premium REITs trade at structural premiums the sector avg can't capture
+TICKER_PFFO: Dict[str, float] = {
+    'WELL': 35.0,  # senior housing; NOI acceleration + demographic tailwind
+    'EQIX': 28.0,  # data center; recurring colocation revenue, AI tailwind
+    'DLR':  24.0,  # data center
+    'AMT':  22.0,  # cell towers; long-term leases, inflation escalators
+    'CCI':  20.0,  # cell towers; more levered, slightly lower premium
+    'SBAC': 22.0,  # cell towers
+    'PLD':  23.0,  # industrial logistics; e-commerce demand secular
+    'SPG':  14.0,  # retail REIT; structurally impaired by e-commerce
+    'O':    15.0,  # net lease retail; slow but stable
+    'VNO':  12.0,  # NYC office; secular headwinds
 }
 
 # Blend weights by company type
@@ -370,7 +493,7 @@ def get_sub_sector_tag(ticker: str, sector: str, industry: str) -> str:
         'Basic Materials': 'industrial_cong',
         'Utilities': 'utility_regulated',   # was telecom_carrier — wrong model
     }
-    return sector_fallback.get(sector, 'cloud_software')
+    return sector_fallback.get(sector, 'industrial_cong')
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +645,7 @@ def bank_model(book_value: float, shares: float, tag: str, ticker: str = '') -> 
     return (book_value * pb) / shares
 
 
-def reit_model(net_income: float, depreciation: float, shares: float) -> Optional[float]:
+def reit_model(net_income: float, depreciation: float, shares: float, ticker: str = '') -> Optional[float]:
     """FFO-based model for REITs. Returns price per share.
     FFO = net_income + D&A (simplified, excludes gains on sales)
     """
@@ -531,7 +654,7 @@ def reit_model(net_income: float, depreciation: float, shares: float) -> Optiona
     ffo = (net_income or 0) + (depreciation or 0)
     if ffo <= 0:
         return None
-    pffo = SECTOR_PFFO.get('reit', 18.0)
+    pffo = TICKER_PFFO.get(ticker) or SECTOR_PFFO.get('reit', 20.0)
     ffo_per_share = ffo / shares
     return ffo_per_share * pffo
 
@@ -547,24 +670,56 @@ def growth_loss_model(analyst_target: Optional[float]) -> Optional[float]:
 # ANALYST CONSENSUS ANCHOR
 # ---------------------------------------------------------------------------
 
+def apply_sanity_guardrail(final_price: float, analyst_target: Optional[float],
+                           current_price: Optional[float]) -> Tuple[float, bool]:
+    """
+    B2-5: Catch data-anomaly cases where the model is wildly wrong.
+    Returns (adjusted_price, was_flagged).
+    Triggers when model is >4× analyst target OR >10× current market price.
+    In those cases, substitute analyst_target * 0.90 as the output.
+    """
+    flagged = False
+
+    if analyst_target and analyst_target > 0:
+        if final_price > analyst_target * 4.0:
+            final_price = analyst_target * 0.90
+            flagged = True
+        elif final_price < analyst_target * 0.25:
+            # Catch extreme undershoots (model < 25% of analyst consensus)
+            final_price = analyst_target * 0.70
+            flagged = True
+
+    if current_price and current_price > 0 and not flagged:
+        if final_price > current_price * 10.0:
+            final_price = current_price * 1.10
+            flagged = True
+
+    return final_price, flagged
+
+
 def apply_analyst_anchor(model_price: float, analyst_target: Optional[float],
-                         company_type: str) -> float:
+                         company_type: str, company_data: dict = None) -> float:
     """
     Blend model price with analyst consensus target.
     Anchor weight varies by company type — story stocks lean heavily on analyst.
+    B2-2: non-USD companies use forced_anchor_weight (85%) to bypass currency-broken DCF.
     """
     if not analyst_target or analyst_target <= 0:
         return model_price
 
-    anchor_weight = {
-        'STORY': 0.70,
-        'HYPERGROWTH': 0.20,
-        'GROWTH_TECH': 0.15,
-        'DISTRESSED': 0.20,
-        'CYCLICAL': 0.10,
-        'STABLE_VALUE': 0.15,
-        'STABLE_VALUE_LOWGROWTH': 0.15,
-    }.get(company_type, 0.15)
+    # B2-2: non-USD reporting currency → override anchor weight
+    if company_data and company_data.get('_forced_anchor_weight'):
+        anchor_weight = company_data['_forced_anchor_weight']
+    else:
+        anchor_weight = {
+            'STORY': 0.70,
+            'HYPERGROWTH': 0.20,
+            'GROWTH_TECH': 0.15,
+            'DISTRESSED': 0.20,
+            'CYCLICAL': 0.10,
+            'STABLE_VALUE': 0.15,
+            'STABLE_VALUE_LOWGROWTH': 0.15,
+        }.get(company_type, 0.15)
 
     return (1 - anchor_weight) * model_price + anchor_weight * analyst_target
 
@@ -638,43 +793,51 @@ def calibrate(company_data: dict) -> dict:
             cash = float(company_data.get('cash', 0) or 0)
             company_data['debt'] = max(0, debt * 0.25 - cash)
 
+    # B2-1: Airline fleet-lease debt fix
+    # Only apply to heavily leveraged carriers (debt/rev > 0.65).
+    # Low-debt carriers like LUV (debt/rev ~0.5) carry real debt, not just leases.
+    if tag == 'airline':
+        debt = float(company_data.get('debt', 0) or 0)
+        revenue = float(company_data.get('revenue', 0) or 0)
+        if revenue > 0 and debt / revenue > 0.65:
+            company_data['debt'] = debt * 0.35
+        # Airlines: cap growth at 6% max (revenue growth is capacity-constrained)
+        g1 = float(company_data.get('growth_rate_y1', 0) or 0)
+        if g1 > 0.06:
+            company_data['growth_rate_y1'] = 0.06
+            company_data['growth_rate_y2'] = 0.05
+            company_data['growth_rate_y3'] = 0.04
+
+    # B2-2: Non-USD financial currency flag
+    # For companies reporting in foreign currency, heavily anchor to analyst consensus
+    # (analyst targets are already in USD; our DCF will be in reporting currency)
+    fin_currency = company_data.get('financial_currency', 'USD')
+    if fin_currency and fin_currency != 'USD':
+        company_data['_non_usd_reporting'] = True
+        # Override analyst anchor weight: 85% for non-USD companies
+        company_data['_forced_anchor_weight'] = 0.85
+    else:
+        company_data['_non_usd_reporting'] = False
+
     # --- Telecom/utility leverage WACC penalty ---
     if tag in ('telecom_carrier', 'utility_regulated'):
         company_data['leverage_wacc_penalty'] = 0.015
     else:
         company_data['leverage_wacc_penalty'] = 0.0
 
-    # --- Terminal growth cap by tag (prevents terminal value explosion) ---
-    # These are hard ceilings — the DCF engine can set lower, but never higher
-    TERMINAL_GROWTH_CAPS = {
-        'consumer_staples':    0.020,
-        'utility_regulated':   0.020,
-        'telecom_carrier':     0.015,
-        'media_cable':         0.010,
-        'tobacco':             0.010,
-        'legacy_tech':         0.015,
-        'auto_legacy':         0.020,
-        'energy_ep':           0.020,
-        'energy_major':        0.020,
-        'packaging':           0.020,
-        'retail_bigbox':       0.025,
-        'logistics_parcel':    0.020,
-        'health_insurance':    0.025,
-        'pharma':              0.025,
-        'defense':             0.025,
-        'industrial_cong':     0.025,
-        'heavy_machinery':     0.025,
-        'gaming':              0.020,
-        'hotel_resort':        0.025,
-        'franchise_rest':      0.025,
-        'reit':                0.020,
-        'oilfield_svc':        0.020,
-    }
-    cap = TERMINAL_GROWTH_CAPS.get(tag)
-    if cap is not None:
-        current_tg = float(company_data.get('terminal_growth', 0.03) or 0.03)
-        if current_tg > cap:
-            company_data['terminal_growth'] = cap
+    # --- Sector-specific terminal growth + recompute Y2/Y3 to converge toward it ---
+    # Sets an explicit target (not just a ceiling) so cloud/tech gets 3%+ and
+    # energy/tobacco/cable get 0.5-1.5%. After setting terminal, Y2 and Y3 are
+    # recomputed so the decay path converges toward that terminal — not an
+    # arbitrary %-step-down from Y1.
+    terminal = TERMINAL_GROWTH_BY_TAG.get(tag, 0.025)
+    company_data['terminal_growth'] = terminal
+
+    # Airline fix already sets explicit Y1/Y2/Y3 above — don't overwrite it.
+    if tag != 'airline':
+        y1 = float(company_data.get('growth_rate_y1', 0.05) or 0.05)
+        company_data['growth_rate_y2'] = round(y1 * 0.67 + terminal * 0.33, 4)
+        company_data['growth_rate_y3'] = round(y1 * 0.33 + terminal * 0.67, 4)
 
     return company_data
 
@@ -716,7 +879,7 @@ def run_alternative_model(tag: str, company_data: dict) -> Optional[float]:
     if shares == 0:
         return None
 
-    if tag in ('commercial_bank', 'invest_bank'):
+    if tag in ('commercial_bank', 'invest_bank', 'pc_insurance'):
         book_value = float(company_data.get('book_value', 0) or 0)
         ticker = company_data.get('ticker', '')
         price = bank_model(book_value, shares, tag, ticker)
@@ -725,7 +888,8 @@ def run_alternative_model(tag: str, company_data: dict) -> Optional[float]:
     if tag == 'reit':
         net_income = float(company_data.get('net_income', 0) or 0)
         dep = float(company_data.get('depreciation', 0) or 0)
-        price = reit_model(net_income, dep, shares)
+        ticker = company_data.get('ticker', '')
+        price = reit_model(net_income, dep, shares, ticker)
         return price
 
     if tag == 'growth_loss':
@@ -733,25 +897,70 @@ def run_alternative_model(tag: str, company_data: dict) -> Optional[float]:
         return growth_loss_model(analyst_target)
 
     if tag == 'health_insurance':
-        # Health insurers trade at P/E, not DCF — medical loss ratio makes revenue-based DCF useless
+        # Health insurers trade at P/E, not DCF — MLR makes revenue-based DCF useless.
+        # CRITICAL: must always return a price to prevent DCF fallback producing $1000+ outliers.
         net_income = float(company_data.get('net_income', 0) or 0)
-        if net_income <= 0:
-            return None
-        pe_multiple = 16.0  # sector P/E: UNH/ELV/HUM median ~15-18x
-        equity_value = net_income * pe_multiple
-        return equity_value / shares if equity_value > 0 else None
+        analyst_target = company_data.get('analyst_target')
+        if net_income > 0:
+            pe_multiple = 16.0  # UNH/ELV median forward P/E; MLR-compressed stocks fall to analyst anchor
+            equity_value = net_income * pe_multiple
+            pe_price = equity_value / shares if equity_value > 0 else None
+        else:
+            pe_price = None
+        if pe_price and pe_price > 0:
+            return pe_price
+        # Fallback: earnings collapsed (MLR crisis, guidance cut) — anchor to analyst consensus
+        if analyst_target and analyst_target > 0:
+            return analyst_target * 0.80  # slight discount for regulatory/MLR execution risk
+        return None
+
+    # B2-2: Non-USD reporting companies (Chinese ADRs, foreign listings)
+    # The DCF computes in reporting currency (CNY, HKD etc.) — completely wrong for USD-priced ADRs.
+    # Use analyst consensus exclusively; analysts already report targets in USD.
+    if company_data.get('_non_usd_reporting'):
+        analyst_target = company_data.get('analyst_target')
+        if analyst_target and analyst_target > 0:
+            return analyst_target * 0.88  # slight discount for execution/liquidity risk
+
+    if tag == 'crypto_proxy':
+        # Bitcoin treasury companies (MSTR etc): no fundamental model works.
+        # Anchor to analyst consensus; if unavailable use analyst * 0.85
+        return growth_loss_model(company_data.get('analyst_target'))
+
+    if tag == 'rule40_saas':
+        # Mid-growth SaaS: value on EV/Revenue using Rule-of-40 score
+        revenue = float(company_data.get('revenue', 0) or 0)
+        if revenue <= 0 or shares == 0:
+            return growth_loss_model(company_data.get('analyst_target'))
+        g1 = float(company_data.get('growth_rate_y1', 0) or 0)
+        # EV/Revenue multiple scales with Rule-of-40 (growth + FCF margin)
+        r40 = g1 * 100  # simplified: FCF margin often unknown, use growth only
+        if r40 >= 40:
+            ev_rev = 11.0
+        elif r40 >= 25:
+            ev_rev = 7.5
+        elif r40 >= 10:
+            ev_rev = 5.0
+        else:
+            ev_rev = 3.5
+        ev = revenue * ev_rev
+        debt = float(company_data.get('debt', 0) or 0)
+        cash = float(company_data.get('cash', 0) or 0)
+        equity = max(0.0, ev - debt + cash)
+        return equity / shares
 
     if tag == 'utility_regulated':
-        # Regulated utilities: value on dividend yield
-        # equity_value = annual_dividend / cost_of_equity
-        # Typical regulated utility ROE ~10%, payout ~65-70%
+        # Regulated utilities: Gordon Growth dividend yield model.
+        # Use market-required yield (~rf + 50bps), NOT CAPM cost of equity.
+        # Utilities are bond proxies — investors price them on yield, not CAPM.
+        # CAPM gives 7-8% which would imply P/E ~8x; utilities actually trade at 15-20x.
         net_income = float(company_data.get('net_income', 0) or 0)
         if net_income <= 0:
             return None
-        annual_dividend = net_income * 0.67  # ~67% payout ratio
-        cost_of_equity  = float(company_data.get('wacc', 0.075) or 0.075)
-        cost_of_equity  = max(cost_of_equity, 0.065)  # floor
-        equity_value    = annual_dividend / cost_of_equity
+        annual_dividend  = net_income * 0.67          # ~67% payout ratio
+        risk_free        = float(company_data.get('risk_free_rate', 0.045) or 0.045)
+        required_yield   = max(0.035, risk_free + 0.005)  # rf + 50bps; floor 3.5%
+        equity_value     = annual_dividend / required_yield
         return equity_value / shares if equity_value > 0 else None
 
     return None
@@ -918,6 +1127,12 @@ def apply_ml_correction(predicted_price: float, company_data: dict) -> float:
             return predicted_price * correction
         except Exception as e:
             logger.warning(f'ML correction failed: {e}')
+
+    # B2-2: Skip calibration correction for non-USD companies.
+    # Corrections were calibrated on USD stocks; applying them to CNY-based models
+    # after an 85% analyst anchor would partially undo the anchor.
+    if company_data.get('_non_usd_reporting'):
+        return predicted_price
 
     # Calibration table fallback — always available
     try:

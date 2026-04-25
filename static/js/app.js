@@ -11,7 +11,11 @@ let currentFilter = 'all';
 let currentSort = 'name';
 let dashboardStats = null;
 let appSettings = {};
-let previousValuation = null; // Track previous valuation for comparison
+let previousValuation = null;
+
+// Selection state
+let selectModeActive = false;
+let selectedCompanyIds = new Set();
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
@@ -344,106 +348,91 @@ function renderCompanies() {
         const recClass = getRecommendationClass(company.recommendation);
         const upsideValue = company.upside || 0;
         const upsideClass = upsideValue >= 0 ? 'positive' : 'negative';
-        const upsideBarWidth = Math.min(Math.abs(upsideValue), 100);
-        
+        const isSelected = selectedCompanyIds.has(company.id);
+
+        // Border color driven by recommendation
+        let borderClass = '';
+        if (company.recommendation) {
+            const r = company.recommendation.toLowerCase();
+            if (r.includes('buy')) borderClass = ' card-border-buy';
+            else if (r.includes('hold')) borderClass = ' card-border-hold';
+            else borderClass = ' card-border-sell';
+        }
+
+        // Wall St. upside (only if we have both prices)
+        let streetUpsideHtml = '';
+        if (company.analyst_target && company.current_price) {
+            const su = ((company.analyst_target - company.current_price) / company.current_price) * 100;
+            const sc = su >= 0 ? 'positive' : 'negative';
+            streetUpsideHtml = `<span class="upside-pill ${sc}">${su >= 0 ? '+' : ''}${su.toFixed(1)}% Street</span>`;
+        }
+
+        const cardOnclick = selectModeActive
+            ? `toggleCompanySelection(${company.id})`
+            : `showFairValueBreakdown(${company.id})`;
+
         return `
-            <div class="company-card" data-company-id="${company.id}">
+            <div class="company-card${borderClass}${isSelected ? ' selected' : ''}"
+                 data-company-id="${company.id}"
+                 onclick="${cardOnclick}"
+                 style="cursor:pointer;">
+
+                ${selectModeActive ? `
+                <div onclick="event.stopPropagation();toggleCompanySelection(${company.id})"
+                     style="position:absolute;top:12px;right:12px;z-index:2;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;
+                     ${isSelected ? 'background:#111111;border:2px solid #111111;' : 'background:var(--bg-secondary);border:2px solid var(--border-primary);'}">
+                    ${isSelected ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+                </div>` : ''}
+
+                <!-- Header: ticker + rec badge -->
                 <div class="company-header">
-                    <div class="company-name">${company.name}</div>
-                    <div class="company-meta">
-                        <span class="company-sector">${company.sector || 'N/A'}</span>
-                        ${company.ticker ? `<span class="company-ticker">${company.ticker}</span>` : ''}
+                    <div class="company-header-left">
+                        <div class="company-ticker-large">${company.ticker || company.name}</div>
+                        <div class="company-name-sub">
+                            ${company.ticker ? company.name : ''}
+                            ${company.sector ? `<span class="company-sector-tag">${company.sector}</span>` : ''}
+                        </div>
                     </div>
+                    ${company.recommendation ? `<div class="rec-badge-header ${recClass}">${company.recommendation}</div>` : ''}
                 </div>
-                
+
                 ${company.fair_value ? `
-                    <!-- Main Metrics -->
-                    <div class="company-metrics">
-                        <div class="metric">
-                            <div class="metric-label">DCF Fair Price</div>
-                            <div class="metric-value clickable" onclick="showFairValueBreakdown(${company.id})">$${formatNumber(company.fair_value)}</div>
+                    <!-- Price Bubbles -->
+                    <div class="price-bubbles">
+                        <div class="price-bubble axiom">
+                            <div class="bubble-value">$${formatNumber(company.fair_value)}</div>
+                            <div class="bubble-label">AXIOM</div>
                         </div>
-                        <div class="metric">
-                            <div class="metric-label">Current Price</div>
-                            <div class="metric-value company-current-price">$${company.current_price ? company.current_price.toFixed(2) : 'N/A'}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Market Cap</div>
-                            <div class="metric-value company-market-cap">$${formatNumber(company.market_cap)}</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Upside</div>
-                            <div class="metric-value ${upsideClass}">
-                                ${upsideValue >= 0 ? '+' : ''}${upsideValue.toFixed(1)}%
-                            </div>
+                        ${company.analyst_target ? `
+                        <div class="price-bubble street">
+                            <div class="bubble-value">$${formatNumber(company.analyst_target)}</div>
+                            <div class="bubble-label">Wall St.</div>
+                        </div>` : ''}
+                        <div class="price-bubble market">
+                            <div class="bubble-value">$${company.current_price ? company.current_price.toFixed(2) : 'N/A'}</div>
+                            <div class="bubble-label">Market</div>
                         </div>
                     </div>
-                    
-                    <!-- Quality Scores -->
-                    <div class="quality-scores">
-                        <div class="quality-item">
-                            <div class="quality-label">P/E</div>
-                            <div class="quality-value">${company.pe_ratio ? company.pe_ratio.toFixed(1) + 'x' : 'N/A'}</div>
-                        </div>
-                        <div class="quality-item">
-                            <div class="quality-label">ROE</div>
-                            <div class="quality-value ${company.roe >= 15 ? 'text-positive' : ''}">${company.roe ? company.roe.toFixed(1) + '%' : 'N/A'}</div>
-                        </div>
-                        <div class="quality-item">
-                            <div class="quality-label">Z-Score</div>
-                            <div class="quality-value ${company.z_score >= 2.99 ? 'text-positive' : company.z_score < 1.81 ? 'text-negative' : ''}">${company.z_score ? company.z_score.toFixed(2) : 'N/A'}</div>
-                        </div>
+
+                    <!-- Upside Row -->
+                    <div class="upside-row">
+                        <span class="upside-pill ${upsideClass}">${upsideValue >= 0 ? '+' : ''}${upsideValue.toFixed(1)}% AXIOM</span>
+                        ${streetUpsideHtml}
                     </div>
-                    
-                    <!-- Upside Visualization -->
-                    <div class="upside-bar">
-                        <div class="upside-label">
-                            <span>Target vs Current</span>
-                            <span class="upside-value ${upsideClass}">${upsideValue >= 0 ? '+' : ''}${upsideValue.toFixed(1)}%</span>
-                        </div>
-                        <div class="upside-visual">
-                            <div class="upside-fill ${upsideClass}" style="width: ${upsideBarWidth}%"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Recommendation Badge -->
-                    <div class="recommendation-badge ${recClass}">
-                        ${company.recommendation || 'N/A'}
-                    </div>
+
+                    <div class="card-view-analysis">View full analysis →</div>
                 ` : `
-                    <div style="text-align: center; padding: 2rem; color: var(--text-tertiary);">
-                        <p style="margin-bottom: 1rem;">📊 No valuation data yet</p>
-                        <p style="font-size: 0.875rem;">Run a valuation to see detailed analysis</p>
+                    <div style="text-align:center; padding:2rem 1rem; color:var(--text-tertiary);">
+                        <p style="margin-bottom:0.5rem; font-size:1.25rem;">📊</p>
+                        <p style="font-size:0.875rem; font-weight:600;">No valuation data yet</p>
+                        <p style="font-size:0.75rem; margin-top:0.25rem;">Click to run analysis</p>
                     </div>
                 `}
 
-                <!-- Scenario Selector (Bear/Base/Bull) -->
-                <div class="scenario-selector">
-                    <button class="scenario-btn bear" data-scenario="bear" onclick="applyScenarioToCompany(${company.id}, 'bear')" title="Pessimistic scenario">
-                        🐻 Bear
-                    </button>
-                    <button class="scenario-btn base active" data-scenario="base" onclick="applyScenarioToCompany(${company.id}, 'base')" title="Balanced scenario">
-                        📊 Base
-                    </button>
-                    <button class="scenario-btn bull" data-scenario="bull" onclick="applyScenarioToCompany(${company.id}, 'bull')" title="Optimistic scenario">
-                        🐂 Bull
-                    </button>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="company-actions">
-                    <button class="btn btn-primary" onclick="runValuation(${company.id})" title="${company.fair_value ? 'Re-run valuation' : 'Run initial valuation'}">
-                        ${company.fair_value ? '🔄 Revalue' : '💰 Value'}
-                    </button>
-                    <button class="btn btn-secondary" onclick="editCompany(${company.id})" title="Edit company details">
-                        ✏️ Edit
-                    </button>
-                    <button class="btn btn-danger" onclick="deleteCompany(${company.id})" title="Delete company">
-                        🗑️
-                    </button>
-                    <button class="btn btn-secondary btn-icon" onclick="toggleWatchlist(${company.id})" title="Add to watchlist">
-                        ⭐
-                    </button>
+                <div class="scenario-selector" style="display:none">
+                    <button class="scenario-btn bear" data-scenario="bear" onclick="event.stopPropagation();applyScenarioToCompany(${company.id}, 'bear')">🐻 Bear</button>
+                    <button class="scenario-btn base active" data-scenario="base" onclick="event.stopPropagation();applyScenarioToCompany(${company.id}, 'base')">📊 Base</button>
+                    <button class="scenario-btn bull" data-scenario="bull" onclick="event.stopPropagation();applyScenarioToCompany(${company.id}, 'bull')">🐂 Bull</button>
                 </div>
             </div>
         `;
@@ -466,18 +455,18 @@ async function showFairValueBreakdown(companyId) {
         const result = {
             company_id: data.id,
             name: data.name,
-            recommendation: val.recommendation || val.recommendation,
-            upside_pct: val.upside_pct || val.upside_pct || 0,
-            final_equity_value: val.final_equity_value || val.final_equity_value,
-            final_price_per_share: val.final_price_per_share || val.final_price_per_share || 0,
-            market_cap: val.market_cap || val.market_cap || 0,
-            current_price: val.current_price || val.current_price || 0,
-            dcf_equity_value: val.dcf_equity_value || val.dcf_equity_value,
-            dcf_price_per_share: val.dcf_price_per_share || val.dcf_price_per_share || 0,
-            comp_ev_value: val.comp_ev_value || val.comp_ev_value || 0,
-            comp_pe_value: val.comp_pe_value || val.comp_pe_value || 0,
-            mc_p10: val.mc_p10 || val.mc_p10 || 0,
-            mc_p90: val.mc_p90 || val.mc_p90 || 0,
+            recommendation: val.recommendation || 0,
+            upside_pct: val.upside_pct || 0,
+            final_equity_value: val.final_equity_value || 0,
+            final_price_per_share: val.final_price_per_share || 0,
+            market_cap: val.market_cap || 0,
+            current_price: val.current_price || 0,
+            dcf_equity_value: val.dcf_equity_value || 0,
+            dcf_price_per_share: val.dcf_price_per_share || 0,
+            comp_ev_value: val.comp_ev_value || 0,
+            comp_pe_value: val.comp_pe_value || 0,
+            mc_p10: val.mc_p10 || 0,
+            mc_p90: val.mc_p90 || 0,
             wacc: val.wacc || 0,
             ev_ebitda: val.ev_ebitda || 0,
             pe_ratio: val.pe_ratio || 0,
@@ -485,7 +474,11 @@ async function showFairValueBreakdown(companyId) {
             roe: val.roe || 0,
             roic: val.roic || 0,
             debt_to_equity: val.debt_to_equity || 0,
-            z_score: val.z_score || 0
+            z_score: val.z_score || 0,
+            sub_sector_tag: val.sub_sector_tag || null,
+            company_type: val.company_type || null,
+            ebitda_method: val.ebitda_method || null,
+            analyst_target: val.analyst_target || null,
         };
 
         hideLoadingState();
@@ -1130,6 +1123,80 @@ async function saveCompany(e) {
 }
 
 // ============================================
+// MULTI-SELECT
+// ============================================
+
+function toggleSelectMode() {
+    selectModeActive = !selectModeActive;
+    selectedCompanyIds.clear();
+    const btn = document.getElementById('select-mode-btn');
+    btn.textContent = selectModeActive ? 'Cancel' : 'Select';
+    btn.classList.toggle('active', selectModeActive);
+    document.getElementById('bulk-action-bar').style.display = 'none';
+    renderCompanies(filteredCompanies);
+}
+
+function toggleCompanySelection(companyId) {
+    if (selectedCompanyIds.has(companyId)) {
+        selectedCompanyIds.delete(companyId);
+    } else {
+        selectedCompanyIds.add(companyId);
+    }
+    const count = selectedCompanyIds.size;
+    const bar = document.getElementById('bulk-action-bar');
+    bar.style.display = count > 0 ? 'flex' : 'none';
+    document.getElementById('bulk-count').textContent = `${count} selected`;
+    // Update card visual
+    const card = document.querySelector(`[data-company-id="${companyId}"]`);
+    if (card) card.classList.toggle('selected', selectedCompanyIds.has(companyId));
+}
+
+function clearSelection() {
+    selectedCompanyIds.clear();
+    document.getElementById('bulk-action-bar').style.display = 'none';
+    document.querySelectorAll('.company-card.selected').forEach(c => c.classList.remove('selected'));
+}
+
+async function bulkDeleteSelected() {
+    const ids = [...selectedCompanyIds];
+    if (ids.length === 0) return;
+    if (!confirm(`Remove ${ids.length} company(s) from portfolio? This cannot be undone.`)) return;
+
+    showLoadingState(`Removing ${ids.length} companies...`);
+    let failed = 0;
+    for (const id of ids) {
+        try {
+            const r = await fetch(`/api/company/${id}`, { method: 'DELETE' });
+            if (!r.ok) failed++;
+        } catch { failed++; }
+    }
+    hideLoadingState();
+    selectModeActive = false;
+    selectedCompanyIds.clear();
+    const btn = document.getElementById('select-mode-btn');
+    btn.textContent = 'Select';
+    btn.className = 'btn-secondary';
+    document.getElementById('bulk-action-bar').style.display = 'none';
+    if (failed > 0) alert(`${failed} companies could not be removed.`);
+    loadCompanies();
+    loadDashboard();
+}
+
+function bulkWatchlistSelected() {
+    const ids = [...selectedCompanyIds];
+    if (ids.length === 0) return;
+    const watchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
+    let added = 0;
+    ids.forEach(id => {
+        if (!watchlist.includes(id)) { watchlist.push(id); added++; }
+    });
+    localStorage.setItem('watchlist', JSON.stringify(watchlist));
+    clearSelection();
+    renderCompanies(filteredCompanies);
+    if (added > 0) alert(`${added} company(s) added to watchlist`);
+}
+
+// ============================================
 // DELETE COMPANY
 // ============================================
 
@@ -1194,11 +1261,61 @@ async function runValuation(companyId) {
     }
 }
 
+function ebitdaMethodLabel(method) {
+    const labels = {
+        'em:trend':          'EBITDA: trend direction',
+        'em:3yavg':          'EBITDA: 3yr average',
+        'em:cyc3yr':         'EBITDA: cycle average',
+        'em:secular_decline':'EBITDA: secular decline',
+        'em:recent':         'EBITDA: most recent year',
+        'em:single':         'EBITDA: single year',
+        'em:zero':           'EBITDA: zero',
+    };
+    return labels[method] || method;
+}
+
+function buildBlendBar(result) {
+    // Try to infer blend weights from the three component values
+    const dcfVal = result.dcf_price_per_share || 0;
+    const evVal  = result.comp_ev_value > 0 && result.market_cap > 0 && result.current_price > 0
+        ? result.comp_ev_value / (result.market_cap / result.current_price) : 0;
+    const peVal  = result.comp_pe_value > 0 && result.market_cap > 0 && result.current_price > 0
+        ? result.comp_pe_value / (result.market_cap / result.current_price) : 0;
+    const final  = result.final_price_per_share || 0;
+
+    // Can't build a meaningful bar without all three components
+    if (!dcfVal && !evVal && !peVal) return '';
+
+    // Build visual bar showing relative contribution
+    const typeLabels = {
+        'HYPERGROWTH':            'DCF 20% · EV/EBITDA 50% · P/E 30%',
+        'GROWTH_TECH':            'DCF 40% · EV/EBITDA 35% · P/E 25%',
+        'DISTRESSED':             'DCF 0% · EV/EBITDA 60% · P/E 40%',
+        'CYCLICAL':               'DCF 35% · EV/EBITDA 45% · P/E 20%',
+        'STORY':                  'DCF 15% · P/E (analyst anchor) 85%',
+        'STABLE_VALUE':           'DCF 45% · EV/EBITDA 30% · P/E 25%',
+        'STABLE_VALUE_LOWGROWTH': 'DCF 20% · EV/EBITDA 55% · P/E 25%',
+    };
+    const weightLabel = typeLabels[result.company_type] || 'DCF + EV/EBITDA + P/E blend';
+
+    return `
+        <div style="padding: 0.75rem 1rem; background: var(--bg-secondary); border-radius: 8px; font-size: 0.8rem; color: var(--text-secondary);">
+            <span style="font-weight: 600; color: var(--text-primary);">Blend weights:</span> ${weightLabel}
+        </div>`;
+}
+
 function showValuationResults(result) {
-    document.getElementById('valuation-modal').classList.add('active');
+    const modal = document.getElementById('valuation-modal');
+    const modalContent = modal.querySelector('.modal-content');
+    modal.classList.add('active');
     document.getElementById('valuation-company-name').textContent = `${result.name} - Detailed Valuation`;
 
     const recClass = getRecommendationClass(result.recommendation);
+
+    // Remove old rec classes and add current one
+    modalContent.classList.remove('rec-buy', 'rec-hold', 'rec-sell');
+    if (recClass) modalContent.classList.add('rec-' + recClass);
+
     const upsideColor = result.upside_pct >= 0 ? 'var(--positive)' : 'var(--negative)';
 
     // Calculate change from previous valuation if available
@@ -1246,13 +1363,50 @@ function showValuationResults(result) {
         `;
     }
 
+    // Derive share count from valuation output (exact)
+    const shares = (result.final_price_per_share > 0 && result.final_equity_value > 0)
+        ? result.final_equity_value / result.final_price_per_share : 0;
+
+    const dcfPS  = result.dcf_price_per_share || 0;
+    const evPS   = (shares > 0 && result.comp_ev_value > 0)  ? result.comp_ev_value  / shares : 0;
+    const pePS   = (shares > 0 && result.comp_pe_value > 0)  ? result.comp_pe_value  / shares : 0;
+    const finalPS = result.final_price_per_share || 0;
+    const analystPS = result.analyst_target ? +result.analyst_target : 0;
+
+    // Blend weights lookup
+    const WEIGHTS = {
+        'HYPERGROWTH':            [0.20, 0.50, 0.30],
+        'GROWTH_TECH':            [0.40, 0.35, 0.25],
+        'DISTRESSED':             [0.00, 0.60, 0.40],
+        'CYCLICAL':               [0.35, 0.45, 0.20],
+        'STORY':                  [0.15, 0.00, 0.85],
+        'STABLE_VALUE':           [0.45, 0.30, 0.25],
+        'STABLE_VALUE_LOWGROWTH': [0.20, 0.55, 0.25],
+    };
+    const [wDCF, wEV, wPE] = WEIGHTS[result.company_type] || [0.40, 0.35, 0.25];
+    const blended = dcfPS * wDCF + evPS * wEV + pePS * wPE;
+
+    // Build math string e.g. "40% × $350 + 35% × $420 + 25% × $380 = $382"
+    const mathParts = [];
+    if (wDCF > 0) mathParts.push(`${(wDCF*100).toFixed(0)}% × $${dcfPS.toFixed(2)}`);
+    if (wEV  > 0 && evPS > 0) mathParts.push(`${(wEV*100).toFixed(0)}% × $${evPS.toFixed(2)}`);
+    if (wPE  > 0 && pePS > 0) mathParts.push(`${(wPE*100).toFixed(0)}% × $${pePS.toFixed(2)}`);
+    const mathStr = mathParts.join(' + ') + ` = $${blended.toFixed(2)}`;
+
+    // Analyst anchor step (shown only when analyst target exists)
+    const anchorWeights = { 'STORY': 0.70, 'HYPERGROWTH': 0.30, 'DISTRESSED': 0.40 };
+    const aWeight = anchorWeights[result.company_type] || 0.15;
+    const anchorStr = analystPS > 0
+        ? `${(100-aWeight*100).toFixed(0)}% × $${blended.toFixed(2)} + ${(aWeight*100).toFixed(0)}% × $${analystPS.toFixed(2)} = $${finalPS.toFixed(2)}`
+        : null;
+
     const html = `
         ${changeSection}
 
         <!-- Valuation Header -->
-        <div class="valuation-header">
+        <div class="valuation-header rec-${recClass}">
             <div class="recommendation">${result.recommendation || 'N/A'}</div>
-            <div class="upside" style="color: rgba(255,255,255,0.95);">
+            <div class="upside">
                 ${result.upside_pct >= 0 ? '↑' : '↓'} ${result.upside_pct >= 0 ? '+' : ''}${result.upside_pct.toFixed(1)}% ${result.upside_pct >= 0 ? 'Upside' : 'Downside'}
             </div>
         </div>
@@ -1260,104 +1414,131 @@ function showValuationResults(result) {
         <!-- Summary Metrics -->
         <div class="summary-grid">
             <div class="summary-item">
-                <div class="summary-label">Fair Value (Equity)</div>
-                <div class="summary-value">$${formatNumber(result.final_equity_value)}</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-label">Fair Price/Share</div>
-                <div class="summary-value">$${result.final_price_per_share.toFixed(2)}</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-label">Current Market Cap</div>
-                <div class="summary-value">$${formatNumber(result.market_cap)}</div>
+                <div class="summary-label">Fair Price / Share</div>
+                <div class="summary-value">$${finalPS.toFixed(2)}</div>
             </div>
             <div class="summary-item">
                 <div class="summary-label">Current Price</div>
                 <div class="summary-value">$${result.current_price.toFixed(2)}</div>
             </div>
-        </div>
-        
-        <!-- Valuation Methods -->
-        <div class="valuation-section">
-            <h3>Valuation Methods Comparison</h3>
-            <div class="chart-container">
-                <canvas id="valuationChart"></canvas>
+            <div class="summary-item">
+                <div class="summary-label">Fair Value (Equity)</div>
+                <div class="summary-value">$${formatNumber(result.final_equity_value)}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Market Cap</div>
+                <div class="summary-value">$${formatNumber(result.market_cap)}</div>
             </div>
         </div>
-        
-        <!-- Key Financial Metrics -->
-        <div class="metrics-grid">
-            <div class="metric-item">
-                <div class="summary-label">WACC</div>
-                <div class="summary-value">${result.wacc.toFixed(2)}%</div>
+
+        <!-- HOW THE FAIR VALUE WAS CALCULATED -->
+        <div style="margin: 1.5rem 0; border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden;">
+            <div style="background: var(--bg-secondary); padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Fair Value Calculation</span>
+                ${result.company_type ? `<span style="font-size: 0.75rem; font-weight: 600; color: var(--accent-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 8px;">${result.company_type.replace(/_/g,' ')}</span>` : ''}
+                ${result.sub_sector_tag ? `<span style="font-size: 0.75rem; color: var(--text-muted); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 8px;">${result.sub_sector_tag.replace(/_/g,' ')}</span>` : ''}
             </div>
-            <div class="metric-item">
-                <div class="summary-label">EV/EBITDA</div>
-                <div class="summary-value">${result.ev_ebitda.toFixed(1)}x</div>
-            </div>
-            <div class="metric-item">
-                <div class="summary-label">P/E Ratio</div>
-                <div class="summary-value">${result.pe_ratio.toFixed(1)}x</div>
-            </div>
-            <div class="metric-item">
-                <div class="summary-label">FCF Yield</div>
-                <div class="summary-value">${result.fcf_yield.toFixed(2)}%</div>
-            </div>
-            <div class="metric-item">
-                <div class="summary-label">ROE</div>
-                <div class="summary-value">${result.roe.toFixed(1)}%</div>
-            </div>
-            <div class="metric-item">
-                <div class="summary-label">ROIC</div>
-                <div class="summary-value">${result.roic.toFixed(1)}%</div>
-            </div>
-            <div class="metric-item">
-                <div class="summary-label">Debt/Equity</div>
-                <div class="summary-value">${result.debt_to_equity.toFixed(2)}x</div>
-            </div>
-            <div class="metric-item">
-                <div class="summary-label">Altman Z-Score</div>
-                <div class="summary-value ${result.z_score >= 2.99 ? 'text-positive' : result.z_score < 1.81 ? 'text-negative' : ''}">${result.z_score.toFixed(2)}</div>
-            </div>
-        </div>
-        
-        <!-- Monte Carlo Risk Analysis -->
-        <div class="valuation-section">
-            <h3>Monte Carlo Risk Analysis</h3>
-            <div class="chart-container">
-                <canvas id="monteCarloChart"></canvas>
-            </div>
-            <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; font-size: 0.875rem;">
-                    <div>
-                        <span style="color: var(--text-tertiary);">P10 (Pessimistic):</span>
-                        <strong style="color: var(--text-primary); margin-left: 0.5rem;">$${formatNumber(result.mc_p10)}</strong>
+
+            <!-- Step 1: Three methods -->
+            <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600;">STEP 1 — Three valuation methods</div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-color); border-radius: 6px; overflow: hidden;">
+                    <div style="background: var(--bg-primary); padding: 14px; text-align: center;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">DCF</div>
+                        <div style="font-size: 1.35rem; font-weight: 700;">${dcfPS > 0 ? '$' + dcfPS.toFixed(2) : '—'}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">WACC ${result.wacc ? (result.wacc * 100).toFixed(1) + '%' : '—'}</div>
                     </div>
-                    <div>
-                        <span style="color: var(--text-tertiary);">P50 (Base Case):</span>
-                        <strong style="color: var(--text-primary); margin-left: 0.5rem;">$${formatNumber((result.mc_p10 + result.mc_p90) / 2)}</strong>
+                    <div style="background: var(--bg-primary); padding: 14px; text-align: center;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">EV / EBITDA</div>
+                        <div style="font-size: 1.35rem; font-weight: 700;">${evPS > 0 ? '$' + evPS.toFixed(2) : '—'}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">${result.ev_ebitda ? result.ev_ebitda.toFixed(1) + 'x multiple' : '—'}</div>
                     </div>
-                    <div>
-                        <span style="color: var(--text-tertiary);">P90 (Optimistic):</span>
-                        <strong style="color: var(--text-primary); margin-left: 0.5rem;">$${formatNumber(result.mc_p90)}</strong>
+                    <div style="background: var(--bg-primary); padding: 14px; text-align: center;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">P / E</div>
+                        <div style="font-size: 1.35rem; font-weight: 700;">${pePS > 0 ? '$' + pePS.toFixed(2) : '—'}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">${result.pe_ratio ? result.pe_ratio.toFixed(1) + 'x multiple' : '—'}</div>
                     </div>
                 </div>
             </div>
+
+            <!-- Step 2: Blend -->
+            <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600;">STEP 2 — Weighted blend</div>
+                <div style="font-family: monospace; font-size: 0.875rem; color: var(--text-primary); background: var(--bg-secondary); padding: 10px 14px; border-radius: 6px; line-height: 1.7;">
+                    ${mathStr}
+                </div>
+            </div>
+
+            <!-- Step 3: Analyst anchor (if applicable) -->
+            ${anchorStr ? `
+            <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600;">STEP 3 — Analyst consensus anchor</div>
+                <div style="font-family: monospace; font-size: 0.875rem; color: var(--text-primary); background: var(--bg-secondary); padding: 10px 14px; border-radius: 6px; line-height: 1.7;">
+                    ${anchorStr}
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 6px;">Wall St. consensus: $${analystPS.toFixed(2)}</div>
+            </div>` : ''}
+
+            <!-- Result -->
+            <div style="padding: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Fair Value</div>
+                    <div style="font-size: 2rem; font-weight: 800; color: var(--accent-primary);">$${finalPS.toFixed(2)}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">vs Market</div>
+                    <div style="font-size: 1.4rem; font-weight: 700; color: ${result.upside_pct >= 0 ? '#22c55e' : '#ef4444'};">
+                        ${result.upside_pct >= 0 ? '+' : ''}${result.upside_pct.toFixed(1)}%
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">Current: $${result.current_price.toFixed(2)}</div>
+                </div>
+            </div>
+            ${result.ebitda_method ? `<div style="padding: 8px 16px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); font-size: 0.7rem; color: var(--text-muted);">EBITDA normalization: ${ebitdaMethodLabel(result.ebitda_method)}</div>` : ''}
         </div>
-        
-        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid var(--border-primary); display: flex; gap: 1rem;">
+
+        <!-- Key Financial Metrics -->
+        <div style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">Key Metrics</div>
+        <div class="metrics-grid">
+            <div class="metric-item">
+                <div class="summary-label">WACC</div>
+                <div class="summary-value">${result.wacc ? (result.wacc * 100).toFixed(2) + '%' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">EV/EBITDA</div>
+                <div class="summary-value">${result.ev_ebitda ? result.ev_ebitda.toFixed(1) + 'x' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">P/E Ratio</div>
+                <div class="summary-value">${result.pe_ratio ? result.pe_ratio.toFixed(1) + 'x' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">FCF Yield</div>
+                <div class="summary-value">${result.fcf_yield ? result.fcf_yield.toFixed(2) + '%' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">ROE</div>
+                <div class="summary-value">${result.roe ? result.roe.toFixed(1) + '%' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">ROIC</div>
+                <div class="summary-value">${result.roic ? result.roic.toFixed(1) + '%' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">Debt / Equity</div>
+                <div class="summary-value">${result.debt_to_equity ? result.debt_to_equity.toFixed(2) + 'x' : '—'}</div>
+            </div>
+            <div class="metric-item">
+                <div class="summary-label">Altman Z-Score</div>
+                <div class="summary-value ${result.z_score >= 2.99 ? 'text-positive' : result.z_score < 1.81 ? 'text-negative' : ''}">${result.z_score ? result.z_score.toFixed(2) : '—'}</div>
+            </div>
+        </div>
+
+        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
             <button class="btn-submit" onclick="closeValuationModal()">Close</button>
-            <button class="btn secondary" onclick="exportValuationPDF(${result.company_id})">📄 Export PDF</button>
         </div>
     `;
     
     document.getElementById('valuation-results').innerHTML = html;
-    
-    // Render charts
-    setTimeout(() => {
-        renderValuationChart(result);
-        renderMonteCarloChart(result);
-    }, 100);
 }
 
 // ============================================
@@ -1381,7 +1562,7 @@ function renderValuationChart(result) {
                     (result.market_cap / 1000000).toFixed(2)
                 ],
                 backgroundColor: [
-                    'rgba(59, 130, 246, 0.8)',
+                    'rgba(17, 17, 17, 0.8)',
                     'rgba(139, 92, 246, 0.8)',
                     'rgba(236, 72, 153, 0.8)',
                     'rgba(245, 158, 11, 0.8)'
@@ -1455,7 +1636,7 @@ function renderMonteCarloChart(result) {
                     (result.mc_p90 / 1000000).toFixed(2)
                 ],
                 fill: true,
-                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                backgroundColor: 'rgba(17, 17, 17, 0.2)',
                 borderColor: 'rgb(59, 130, 246)',
                 borderWidth: 3,
                 tension: 0.4,
@@ -1613,8 +1794,8 @@ function renderScenarioCard(type) {
 
     // Try to get specific scenario from fetched data
     const data = _allScenarioData[type];
-    const colorMap = { bear: '#ef4444', base: '#3b82f6', bull: '#22c55e' };
-    const color = colorMap[type] || '#6366f1';
+    const colorMap = { bear: '#ef4444', base: '#555555', bull: '#22c55e' };
+    const color = colorMap[type] || '#111111';
 
     if (!data || !data.scenarios || data.scenarios.length === 0) {
         container.innerHTML = `<p style='color: var(--text-muted);'>No ${type} scenario data available for this company.</p>`;
@@ -1676,7 +1857,7 @@ async function compareAllScenarios() {
             data = await resp.json();
         }
 
-        const colorMap = { bear: '#ef4444', base: '#3b82f6', bull: '#22c55e' };
+        const colorMap = { bear: '#ef4444', base: '#555555', bull: '#22c55e' };
         const types = ['bear', 'base', 'bull'];
 
         let tableHtml = `
