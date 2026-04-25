@@ -1,7 +1,0 @@
-name,model,revenue,profit_margin,growth_rate,industry_multiple,capex,tax_rate,discount_rate,terminal_growth,debt,cash
-TechStartup Inc,simple,1000000,15,25,3.5,,,,,,
-GreenEnergy Corp,sophisticated,5000000,22,18,4.2,8,25,10,3,500000,800000
-RetailCo,simple,2500000,8,5,1.8,,,,,,
-FinTech Solutions,sophisticated,3000000,35,30,5.0,5,21,12,2.5,200000,1500000
-Manufacturing Ltd,simple,10000000,12,7,2.0,,,,,,
-BioTech Innovations,sophisticated,800000,45,40,6.5,15,20,15,3,1000000,500000
