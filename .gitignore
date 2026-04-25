@@ -4,29 +4,30 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
+.venv/
 venv/
+env/
 ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
+dist/
+build/
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+*.txt
+!requirements*.txt
 
 # IDE
 .vscode/
@@ -44,32 +45,16 @@ wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
 
-# Environment variables
-.env
-.env.local
-
-app.log
-*.log
-app_server.log
-valuation_app_log.txt
-batch_run.log
-batch_full.log
-
-# Temp data files
+# Data files (generated at runtime)
+*.jsonl
 predictions_db.json
-prediction_log.jsonl
 monthly_tracking_results.json
-backtest_2yr_report.json
-batch2_tracking.json
+backtest_*_report.json
+batch*.json
+*_results.csv
 
-# Session docs (not source)
-*_COMPLETE.md
-*_SUMMARY.md
-*_GUIDE.md
-*_PLAN.md
-*_FIX.md
-*_INFO.md
-*_FIXES*.md
-AXIOM_HANDOFF.md
-RUN_SUMMARY.md
+# Exports (generated)
+exports/*.pdf
+exports/*.xlsx
