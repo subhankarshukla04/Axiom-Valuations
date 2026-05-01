@@ -26,8 +26,8 @@ class Config:
     POSTGRES_USER = os.environ.get('POSTGRES_USER', os.environ.get('USER', 'postgres'))
     POSTGRES_PASSWORD = os.environ.get('POSTGRES_PASSWORD', '')
 
-    # SQLite settings (fallback)
-    SQLITE_DB = 'valuations.db'
+    # SQLite settings — /tmp is the only writable path on Vercel serverless
+    SQLITE_DB = os.environ.get('SQLITE_DB', '/tmp/valuations.db' if os.environ.get('VERCEL') else 'valuations.db')
 
     # Session settings
     SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
