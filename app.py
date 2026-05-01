@@ -437,8 +437,43 @@ def import_and_value():
             }), 500
 
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         logger.error(f"Error in import-and-value: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e), 'traceback': tb}), 500
+
+
+@app.route('/api/debug/<ticker>', methods=['GET'])
+def debug_import(ticker):
+    """Diagnostic endpoint — hit /api/debug/AAPL to see exactly what fails."""
+    import traceback, time
+    out = {'ticker': ticker.upper(), 'steps': []}
+    try:
+        t0 = time.time()
+        import yfinance as yf
+        stock = yf.Ticker(ticker.upper())
+        info = stock.info
+        out['steps'].append({'info_fetch': round(time.time()-t0, 2), 'symbol': info.get('symbol'), 'name': info.get('longName')})
+    except Exception as e:
+        out['steps'].append({'info_error': str(e), 'traceback': traceback.format_exc()})
+        return jsonify(out)
+    try:
+        t1 = time.time()
+        company_data = data_integrator.get_company_data(ticker.upper())
+        out['steps'].append({'get_company_data': round(time.time()-t1, 2), 'keys': list(company_data.keys()) if company_data else None})
+    except Exception as e:
+        out['steps'].append({'get_company_data_error': str(e), 'traceback': traceback.format_exc()})
+        return jsonify(out)
+    try:
+        t2 = time.time()
+        conn = get_db_connection()
+        conn.execute('SELECT 1')
+        conn.close()
+        out['steps'].append({'db_connection': round(time.time()-t2, 2), 'sqlite_path': Config.SQLITE_DB})
+    except Exception as e:
+        out['steps'].append({'db_error': str(e), 'traceback': traceback.format_exc()})
+    out['total_seconds'] = round(time.time()-t0, 2)
+    return jsonify(out)
 
 
 @app.route('/api/price/realtime/<ticker>', methods=['GET'])
