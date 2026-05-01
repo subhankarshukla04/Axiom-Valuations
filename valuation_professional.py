@@ -241,6 +241,60 @@ def enhanced_dcf_valuation(company_data):
 				'company_type': company_data.get('company_type'),
 				'ebitda_method': company_data.get('ebitda_method'),
 				'analyst_target': analyst_target,
+				'dcf_details': {
+					'ticker': company_data.get('ticker', ''),
+					'model_type': 'alternative',
+					'note': f'Uses {tag} model instead of DCF',
+					'reason': 'DCF is not appropriate for this company type (banks use P/B, REITs use FFO, etc.)',
+					'inputs': {
+						'market_cap': {
+							'value': market_cap,
+							'source': 'yahoo_finance',
+							'url_path': '',
+							'label': 'Market Cap',
+						},
+						'shares_outstanding': {
+							'value': shares,
+							'source': 'yahoo_finance',
+							'url_path': '/key-statistics',
+							'label': 'Shares Outstanding',
+						},
+					},
+					'calculated': {
+						'price_per_share': {
+							'value': alt_price,
+							'formula': f'{tag} alternative valuation model',
+							'result': f'${alt_price:.2f}',
+						},
+					},
+				},
+				'ev_ebitda_details': {
+					'ticker': company_data.get('ticker', ''),
+					'model_type': 'alternative',
+					'note': f'Uses {tag} model instead of EV/EBITDA',
+					'calculated': {
+						'price_per_share': {
+							'value': alt_price,
+							'formula': f'{tag} alternative valuation model',
+							'result': f'${alt_price:.2f}',
+						},
+					},
+				},
+				'pe_details': {
+					'ticker': company_data.get('ticker', ''),
+					'model_type': 'alternative',
+					'note': f'Uses {tag} model instead of P/E',
+					'calculated': {
+						'price_per_share': {
+							'value': alt_price,
+							'formula': f'{tag} alternative valuation model',
+							'result': f'${alt_price:.2f}',
+						},
+					},
+				},
+				'blend_weights': {
+					'alternative_model': 1.0,
+				},
 			}
 
 	name = company_data['name']
@@ -328,34 +382,50 @@ def enhanced_dcf_valuation(company_data):
 	print("-" * 81)
 	
 	projected_fcf = []
+	projection_details = []
 	total_pv_fcf = 0
 	current_revenue = revenue
-	
+
 	# Define growth schedule (10 years) - gradual step-down to terminal rate
 	growth_schedule = [
 		growth_y1, growth_y1, growth_y2, growth_y2, growth_y3,
 		growth_y3, (growth_y3 + terminal_growth)/2, terminal_growth + 0.01,
 		terminal_growth + 0.005, terminal_growth
 	]
-	
+
+	base_revenue = revenue  # Store for WC scaling
 	for year in range(1, 11):
 		growth_rate = growth_schedule[year-1]
 		current_revenue *= (1 + growth_rate)
-		
+
 		year_ebitda = current_revenue * (ebitda / revenue)
 		year_da = current_revenue * (depreciation / revenue)
 		year_ebit = year_ebitda - year_da
 		year_nopat = year_ebit * (1 - tax_rate)
 		year_capex = current_revenue * capex_pct
-		year_wc = wc_change * (1 + growth_rate) ** year
+		year_wc = wc_change * (current_revenue / base_revenue)  # WC scales with revenue
 		year_fcf = year_nopat + year_da - year_capex - year_wc
-		
+
 		discount_factor = 1 / ((1 + wacc) ** year)
 		pv_fcf = year_fcf * discount_factor
 		total_pv_fcf += pv_fcf
-		
+
 		projected_fcf.append(year_fcf)
-		
+		projection_details.append({
+			'year': year,
+			'growth_rate': growth_rate,
+			'revenue': current_revenue,
+			'ebitda': year_ebitda,
+			'da': year_da,
+			'ebit': year_ebit,
+			'nopat': year_nopat,
+			'capex': year_capex,
+			'wc_change': year_wc,
+			'fcf': year_fcf,
+			'discount_factor': discount_factor,
+			'pv_fcf': pv_fcf,
+		})
+
 		print(f"{year:<6} ${current_revenue:>14,.0f} ${year_ebitda:>14,.0f} ${year_nopat:>14,.0f} ${year_fcf:>14,.0f} ${pv_fcf:>14,.0f}")
 	
 	# Terminal Value
@@ -619,7 +689,296 @@ def enhanced_dcf_valuation(company_data):
 		'company_type': company_data.get('company_type'),
 		'ebitda_method': company_data.get('ebitda_method'),
 		'analyst_target': company_data.get('analyst_target'),
-		'mc_p90': mc_results['p90']
+		'mc_p90': mc_results['p90'],
+		'dcf_details': {
+			'ticker': company_data.get('ticker', ''),
+			'inputs': {
+				'revenue': {
+					'value': revenue,
+					'source': 'yahoo_finance',
+					'url_path': '/financials',
+					'label': 'Total Revenue (TTM)',
+				},
+				'ebitda': {
+					'value': ebitda,
+					'source': 'yahoo_finance',
+					'url_path': '/financials',
+					'label': 'EBITDA',
+				},
+				'depreciation': {
+					'value': depreciation,
+					'source': 'yahoo_finance',
+					'url_path': '/cash-flow',
+					'label': 'Depreciation & Amortization',
+				},
+				'cash': {
+					'value': cash,
+					'source': 'yahoo_finance',
+					'url_path': '/balance-sheet',
+					'label': 'Cash & Cash Equivalents',
+				},
+				'debt': {
+					'value': debt,
+					'source': 'yahoo_finance',
+					'url_path': '/balance-sheet',
+					'label': 'Total Debt',
+				},
+				'shares_outstanding': {
+					'value': shares,
+					'source': 'yahoo_finance',
+					'url_path': '/key-statistics',
+					'label': 'Shares Outstanding',
+				},
+				'beta': {
+					'value': beta,
+					'source': 'yahoo_finance',
+					'url_path': '/key-statistics',
+					'label': 'Beta (5Y Monthly)',
+				},
+				'market_cap': {
+					'value': market_cap,
+					'source': 'yahoo_finance',
+					'url_path': '',
+					'label': 'Market Cap',
+				},
+			},
+			'assumptions': {
+				'risk_free_rate': {
+					'value': rf_rate,
+					'source': 'fred',
+					'label': '10-Year Treasury Rate',
+					'note': 'US Treasury yield as of valuation date',
+				},
+				'market_risk_premium': {
+					'value': mrp,
+					'source': 'assumption',
+					'label': 'Equity Risk Premium',
+					'note': 'Historical average excess return of stocks over bonds',
+				},
+				'terminal_growth': {
+					'value': terminal_growth,
+					'source': 'assumption',
+					'label': 'Terminal Growth Rate',
+					'note': 'Long-term GDP growth proxy, capped at WACC - 1%',
+				},
+				'tax_rate': {
+					'value': tax_rate,
+					'source': 'yahoo_finance',
+					'url_path': '/financials',
+					'label': 'Effective Tax Rate',
+				},
+			},
+			'calculated': {
+				'cost_of_equity': {
+					'value': cost_of_equity,
+					'formula': 'Rf + β × MRP',
+					'result': f'{cost_of_equity*100:.2f}%',
+					'components': {
+						'rf': rf_rate,
+						'beta': beta,
+						'mrp': mrp,
+					},
+				},
+				'cost_of_debt': {
+					'value': cost_of_debt,
+					'formula': 'Rf + Credit Spread',
+					'result': f'{cost_of_debt*100:.2f}%',
+					'components': {
+						'rf': rf_rate,
+						'credit_spread': cost_of_debt - rf_rate,
+					},
+					'note': 'Credit spread from Damodaran synthetic rating based on interest coverage',
+				},
+				'wacc': {
+					'value': wacc,
+					'formula': '(E/V × Re) + (D/V × Rd × (1-T))',
+					'result': f'{wacc*100:.2f}%',
+					'components': {
+						'weight_equity': market_cap / (max(0, debt - cash) + market_cap) if (max(0, debt - cash) + market_cap) > 0 else 1,
+						'weight_debt': max(0, debt - cash) / (max(0, debt - cash) + market_cap) if (max(0, debt - cash) + market_cap) > 0 else 0,
+						'cost_of_equity': cost_of_equity,
+						'cost_of_debt': cost_of_debt,
+						'tax_rate': tax_rate,
+					},
+				},
+				'terminal_value': {
+					'value': terminal_value,
+					'formula': f'FCF₁₀ × (1+g) / (WACC-g) = ${terminal_fcf/1e9:.1f}B / ({wacc*100:.2f}% - {terminal_growth*100:.2f}%)',
+					'result': f'${terminal_value/1e9:.1f}B',
+				},
+				'pv_terminal_value': {
+					'value': pv_terminal_value,
+					'formula': f'TV / (1+WACC)^10 = ${terminal_value/1e9:.1f}B / (1+{wacc*100:.2f}%)^10',
+					'result': f'${pv_terminal_value/1e9:.1f}B',
+				},
+				'enterprise_value': {
+					'value': dcf_enterprise_value,
+					'formula': 'PV(FCF) + PV(Terminal Value)',
+					'components': {
+						'pv_fcf': total_pv_fcf,
+						'pv_terminal': pv_terminal_value,
+					},
+					'result': f'${dcf_enterprise_value/1e9:.1f}B',
+				},
+				'equity_value': {
+					'value': dcf_equity_value,
+					'formula': 'Enterprise Value + Cash - Debt',
+					'components': {
+						'enterprise_value': dcf_enterprise_value,
+						'cash': cash,
+						'debt': debt,
+					},
+					'result': f'${dcf_equity_value/1e9:.1f}B',
+				},
+				'price_per_share': {
+					'value': dcf_price_per_share,
+					'formula': f'Equity Value / Shares = ${dcf_equity_value/1e9:.1f}B / {shares/1e9:.2f}B',
+					'result': f'${dcf_price_per_share:.2f}',
+				},
+			},
+			'projection': {
+				'years': list(range(1, 11)),
+				'details': projection_details,
+				'total_pv_fcf': total_pv_fcf,
+				'terminal_fcf': terminal_fcf,
+				'terminal_value': terminal_value,
+				'pv_terminal_value': pv_terminal_value,
+			},
+			'base_inputs': {
+				'revenue': revenue,
+				'ebitda': ebitda,
+				'ebitda_margin': ebitda / revenue if revenue > 0 else 0,
+				'depreciation': depreciation,
+				'da_ratio': depreciation / revenue if revenue > 0 else 0,
+				'tax_rate': tax_rate,
+				'capex_pct': capex_pct,
+				'wc_change': wc_change,
+				'cash': cash,
+				'debt': debt,
+				'shares': shares,
+				'market_cap': market_cap,
+				'growth_y1': growth_y1,
+				'growth_y2': growth_y2,
+				'growth_y3': growth_y3,
+				'terminal_growth': terminal_growth,
+				'rf_rate': rf_rate,
+				'beta': beta,
+				'mrp': mrp,
+				'wacc': wacc,
+				'cost_of_equity': cost_of_equity,
+				'cost_of_debt': cost_of_debt,
+			},
+		},
+		'ev_ebitda_details': {
+			'ticker': company_data.get('ticker', ''),
+			'inputs': {
+				'ebitda': {
+					'value': ebitda,
+					'source': 'yahoo_finance',
+					'url_path': '/financials',
+					'label': 'EBITDA (TTM)',
+				},
+				'debt': {
+					'value': debt,
+					'source': 'yahoo_finance',
+					'url_path': '/balance-sheet',
+					'label': 'Total Debt',
+				},
+				'cash': {
+					'value': cash,
+					'source': 'yahoo_finance',
+					'url_path': '/balance-sheet',
+					'label': 'Cash & Equivalents',
+				},
+				'shares_outstanding': {
+					'value': shares,
+					'source': 'yahoo_finance',
+					'url_path': '/key-statistics',
+					'label': 'Shares Outstanding',
+				},
+			},
+			'assumptions': {
+				'ev_ebitda_multiple': {
+					'value': comp_ev_ebitda,
+					'source': 'industry_comps',
+					'label': 'EV/EBITDA Multiple',
+					'note': f'Based on {sector} sector comparable companies',
+				},
+			},
+			'calculated': {
+				'implied_ev': {
+					'value': comp_ev_method,
+					'formula': f'EBITDA × Multiple = ${ebitda/1e9:.1f}B × {comp_ev_ebitda:.1f}x',
+					'result': f'${comp_ev_method/1e9:.1f}B',
+				},
+				'implied_equity': {
+					'value': comp_equity_ev,
+					'formula': f'EV + Cash - Debt = ${comp_ev_method/1e9:.1f}B + ${cash/1e9:.1f}B - ${debt/1e9:.1f}B',
+					'result': f'${comp_equity_ev/1e9:.1f}B',
+				},
+				'price_per_share': {
+					'value': comp_equity_ev / shares if shares > 0 else 0,
+					'formula': f'Equity / Shares = ${comp_equity_ev/1e9:.1f}B / {shares/1e9:.2f}B',
+					'result': f'${comp_equity_ev / shares if shares > 0 else 0:.2f}',
+				},
+			},
+			'base_inputs': {
+				'ebitda': ebitda,
+				'ev_ebitda_multiple': comp_ev_ebitda,
+				'debt': debt,
+				'cash': cash,
+				'shares': shares,
+				'sector': sector,
+			},
+		},
+		'pe_details': {
+			'ticker': company_data.get('ticker', ''),
+			'inputs': {
+				'net_income': {
+					'value': profit,
+					'source': 'yahoo_finance',
+					'url_path': '/financials',
+					'label': 'Net Income (TTM)',
+				},
+				'shares_outstanding': {
+					'value': shares,
+					'source': 'yahoo_finance',
+					'url_path': '/key-statistics',
+					'label': 'Shares Outstanding',
+				},
+			},
+			'assumptions': {
+				'pe_multiple': {
+					'value': comp_pe,
+					'source': 'industry_comps',
+					'label': 'P/E Multiple',
+					'note': f'Based on {sector} sector comparable companies',
+				},
+			},
+			'calculated': {
+				'implied_market_cap': {
+					'value': comp_pe_method,
+					'formula': f'Net Income × P/E = ${profit/1e9:.1f}B × {comp_pe:.1f}x',
+					'result': f'${comp_pe_method/1e9:.1f}B',
+				},
+				'price_per_share': {
+					'value': comp_pe_method / shares if shares > 0 else 0,
+					'formula': f'Market Cap / Shares = ${comp_pe_method/1e9:.1f}B / {shares/1e9:.2f}B',
+					'result': f'${comp_pe_method / shares if shares > 0 else 0:.2f}',
+				},
+			},
+			'base_inputs': {
+				'net_income': profit,
+				'pe_multiple': comp_pe,
+				'shares': shares,
+				'sector': sector,
+			},
+		},
+		'blend_weights': {
+			'dcf': weight_dcf,
+			'ev_ebitda': weight_ev_ebitda,
+			'pe': weight_pe,
+		},
 	}
 
 def process_enhanced_csv(filename):

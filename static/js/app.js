@@ -403,6 +403,14 @@ function renderCompanies() {
                             <div class="bubble-value">$${formatNumber(company.fair_value)}</div>
                             <div class="bubble-label">AXIOM</div>
                         </div>
+                        ${(() => {
+                            const uv = getUserValuation(company.id);
+                            return uv ? `
+                        <div class="price-bubble user" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white;">
+                            <div class="bubble-value">$${uv.pricePerShare.toFixed(2)}</div>
+                            <div class="bubble-label">Yours</div>
+                        </div>` : '';
+                        })()}
                         ${company.analyst_target ? `
                         <div class="price-bubble street">
                             <div class="bubble-value">$${formatNumber(company.analyst_target)}</div>
@@ -417,6 +425,15 @@ function renderCompanies() {
                     <!-- Upside Row -->
                     <div class="upside-row">
                         <span class="upside-pill ${upsideClass}">${upsideValue >= 0 ? '+' : ''}${upsideValue.toFixed(1)}% AXIOM</span>
+                        ${(() => {
+                            const uv = getUserValuation(company.id);
+                            if (uv && company.current_price) {
+                                const userUpside = ((uv.pricePerShare - company.current_price) / company.current_price) * 100;
+                                const userClass = userUpside >= 0 ? 'positive' : 'negative';
+                                return `<span class="upside-pill ${userClass}" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white;">${userUpside >= 0 ? '+' : ''}${userUpside.toFixed(1)}% Yours</span>`;
+                            }
+                            return '';
+                        })()}
                         ${streetUpsideHtml}
                     </div>
 
@@ -443,6 +460,7 @@ function renderCompanies() {
 
 // Show fair value breakdown modal (fetch latest stored valuation and show detailed methods)
 async function showFairValueBreakdown(companyId) {
+    currentCompanyId = companyId;  // Set for DCF details modal
     try {
         showLoadingState('Loading valuation breakdown...');
         const res = await fetch(`/api/company/${companyId}`);
@@ -865,6 +883,7 @@ function closeModal() {
 
 function closeValuationModal() {
     document.getElementById('valuation-modal').classList.remove('active');
+    closeDCFModal();
 }
 
 // ============================================
@@ -1367,11 +1386,26 @@ function showValuationResults(result) {
     const shares = (result.final_price_per_share > 0 && result.final_equity_value > 0)
         ? result.final_equity_value / result.final_price_per_share : 0;
 
-    const dcfPS  = result.dcf_price_per_share || 0;
-    const evPS   = (shares > 0 && result.comp_ev_value > 0)  ? result.comp_ev_value  / shares : 0;
-    const pePS   = (shares > 0 && result.comp_pe_value > 0)  ? result.comp_pe_value  / shares : 0;
-    const finalPS = result.final_price_per_share || 0;
+    // AXIOM base values
+    const axiomDcfPS  = result.dcf_price_per_share || 0;
+    const axiomEvPS   = (shares > 0 && result.comp_ev_value > 0)  ? result.comp_ev_value  / shares : 0;
+    const axiomPePS   = (shares > 0 && result.comp_pe_value > 0)  ? result.comp_pe_value  / shares : 0;
     const analystPS = result.analyst_target ? +result.analyst_target : 0;
+
+    // Check for user's saved custom valuations
+    const userDCF = getUserValuation(result.company_id || currentCompanyId);
+    const userEV = getUserEVEBITDAValuation(result.company_id || currentCompanyId);
+    const userPE = getUserPEValuation(result.company_id || currentCompanyId);
+
+    // Use user values if available, otherwise AXIOM
+    const dcfPS = userDCF ? userDCF.pricePerShare : axiomDcfPS;
+    const evPS = userEV ? userEV.pricePerShare : axiomEvPS;
+    const pePS = userPE ? userPE.pricePerShare : axiomPePS;
+
+    // Calculate % differences from AXIOM
+    const dcfDiff = axiomDcfPS > 0 ? ((dcfPS - axiomDcfPS) / axiomDcfPS) * 100 : 0;
+    const evDiff = axiomEvPS > 0 ? ((evPS - axiomEvPS) / axiomEvPS) * 100 : 0;
+    const peDiff = axiomPePS > 0 ? ((pePS - axiomPePS) / axiomPePS) * 100 : 0;
 
     // Blend weights lookup
     const WEIGHTS = {
@@ -1386,7 +1420,7 @@ function showValuationResults(result) {
     const [wDCF, wEV, wPE] = WEIGHTS[result.company_type] || [0.40, 0.35, 0.25];
     const blended = dcfPS * wDCF + evPS * wEV + pePS * wPE;
 
-    // Build math string e.g. "40% × $350 + 35% × $420 + 25% × $380 = $382"
+    // Build math string using current (possibly user-adjusted) values
     const mathParts = [];
     if (wDCF > 0) mathParts.push(`${(wDCF*100).toFixed(0)}% × $${dcfPS.toFixed(2)}`);
     if (wEV  > 0 && evPS > 0) mathParts.push(`${(wEV*100).toFixed(0)}% × $${evPS.toFixed(2)}`);
@@ -1396,26 +1430,53 @@ function showValuationResults(result) {
     // Analyst anchor step (shown only when analyst target exists)
     const anchorWeights = { 'STORY': 0.70, 'HYPERGROWTH': 0.30, 'DISTRESSED': 0.40 };
     const aWeight = anchorWeights[result.company_type] || 0.15;
+
+    // Calculate final price using user's blended value
+    const finalPS = analystPS > 0
+        ? blended * (1 - aWeight) + analystPS * aWeight
+        : blended;
+
     const anchorStr = analystPS > 0
         ? `${(100-aWeight*100).toFixed(0)}% × $${blended.toFixed(2)} + ${(aWeight*100).toFixed(0)}% × $${analystPS.toFixed(2)} = $${finalPS.toFixed(2)}`
         : null;
+
+    // Helper to show user vs AXIOM subscript
+    const userBadge = (isUser, diff) => isUser
+        ? `<div style="font-size: 0.65rem; margin-top: 4px; color: ${diff >= 0 ? '#22c55e' : '#ef4444'};">Your value · ${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs AXIOM</div>`
+        : `<div style="font-size: 0.65rem; margin-top: 4px; color: var(--text-muted);">AXIOM</div>`;
+
+    // Recalculate upside based on user's fair value
+    const currentPrice = result.current_price || 0;
+    const userUpside = currentPrice > 0 ? ((finalPS - currentPrice) / currentPrice) * 100 : 0;
+    const hasUserValues = userDCF || userEV || userPE;
+
+    // Determine recommendation based on user's upside
+    let userRec = result.recommendation;
+    if (hasUserValues) {
+        if (userUpside >= 15) userRec = 'BUY';
+        else if (userUpside >= -10) userRec = 'HOLD';
+        else userRec = 'SELL';
+    }
+    const displayUpside = hasUserValues ? userUpside : result.upside_pct;
+    const displayRec = hasUserValues ? userRec : result.recommendation;
+    const displayRecClass = displayRec === 'BUY' ? 'buy' : displayRec === 'SELL' ? 'sell' : 'hold';
 
     const html = `
         ${changeSection}
 
         <!-- Valuation Header -->
-        <div class="valuation-header rec-${recClass}">
-            <div class="recommendation">${result.recommendation || 'N/A'}</div>
+        <div class="valuation-header rec-${displayRecClass}">
+            <div class="recommendation">${displayRec || 'N/A'}${hasUserValues ? ' <span style="font-size: 0.6rem; opacity: 0.8;">(Your Analysis)</span>' : ''}</div>
             <div class="upside">
-                ${result.upside_pct >= 0 ? '↑' : '↓'} ${result.upside_pct >= 0 ? '+' : ''}${result.upside_pct.toFixed(1)}% ${result.upside_pct >= 0 ? 'Upside' : 'Downside'}
+                ${displayUpside >= 0 ? '↑' : '↓'} ${displayUpside >= 0 ? '+' : ''}${displayUpside.toFixed(1)}% ${displayUpside >= 0 ? 'Upside' : 'Downside'}
             </div>
         </div>
 
         <!-- Summary Metrics -->
         <div class="summary-grid">
             <div class="summary-item">
-                <div class="summary-label">Fair Price / Share</div>
-                <div class="summary-value">$${finalPS.toFixed(2)}</div>
+                <div class="summary-label">Fair Price / Share${hasUserValues ? ' <span style="font-size: 0.6rem; color: var(--accent-primary);">(Yours)</span>' : ''}</div>
+                <div class="summary-value" style="${hasUserValues ? 'color: var(--accent-primary);' : ''}">$${finalPS.toFixed(2)}</div>
             </div>
             <div class="summary-item">
                 <div class="summary-label">Current Price</div>
@@ -1423,7 +1484,7 @@ function showValuationResults(result) {
             </div>
             <div class="summary-item">
                 <div class="summary-label">Fair Value (Equity)</div>
-                <div class="summary-value">$${formatNumber(result.final_equity_value)}</div>
+                <div class="summary-value">$${formatNumber(finalPS * shares)}</div>
             </div>
             <div class="summary-item">
                 <div class="summary-label">Market Cap</div>
@@ -1443,20 +1504,20 @@ function showValuationResults(result) {
             <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600;">STEP 1 — Three valuation methods</div>
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-color); border-radius: 6px; overflow: hidden;">
-                    <div style="background: var(--bg-primary); padding: 14px; text-align: center;">
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">DCF</div>
-                        <div style="font-size: 1.35rem; font-weight: 700;">${dcfPS > 0 ? '$' + dcfPS.toFixed(2) : '—'}</div>
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">WACC ${result.wacc ? (result.wacc * 100).toFixed(1) + '%' : '—'}</div>
+                    <div class="method-card method-card-dcf" onclick="toggleDCFDetails()" style="background: var(--bg-primary); padding: 14px; text-align: center; cursor: pointer; transition: all 0.2s ease;" title="Click to see full DCF breakdown">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">DCF <span style="font-size: 0.6rem; color: var(--accent-primary);">↗ details</span></div>
+                        <div style="font-size: 1.35rem; font-weight: 700; ${userDCF ? 'color: var(--accent-primary);' : ''}">${dcfPS > 0 ? '$' + dcfPS.toFixed(2) : '—'}</div>
+                        ${userBadge(!!userDCF, dcfDiff)}
                     </div>
-                    <div style="background: var(--bg-primary); padding: 14px; text-align: center;">
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">EV / EBITDA</div>
-                        <div style="font-size: 1.35rem; font-weight: 700;">${evPS > 0 ? '$' + evPS.toFixed(2) : '—'}</div>
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">${result.ev_ebitda ? result.ev_ebitda.toFixed(1) + 'x multiple' : '—'}</div>
+                    <div class="method-card method-card-ev" onclick="toggleEVEBITDADetails()" style="background: var(--bg-primary); padding: 14px; text-align: center; cursor: pointer; transition: all 0.2s ease;" title="Click to see EV/EBITDA breakdown">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">EV / EBITDA <span style="font-size: 0.6rem; color: var(--accent-primary);">↗ details</span></div>
+                        <div style="font-size: 1.35rem; font-weight: 700; ${userEV ? 'color: var(--accent-primary);' : ''}">${evPS > 0 ? '$' + evPS.toFixed(2) : '—'}</div>
+                        ${userBadge(!!userEV, evDiff)}
                     </div>
-                    <div style="background: var(--bg-primary); padding: 14px; text-align: center;">
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">P / E</div>
-                        <div style="font-size: 1.35rem; font-weight: 700;">${pePS > 0 ? '$' + pePS.toFixed(2) : '—'}</div>
-                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">${result.pe_ratio ? result.pe_ratio.toFixed(1) + 'x multiple' : '—'}</div>
+                    <div class="method-card method-card-pe" onclick="togglePEDetails()" style="background: var(--bg-primary); padding: 14px; text-align: center; cursor: pointer; transition: all 0.2s ease;" title="Click to see P/E breakdown">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">P / E <span style="font-size: 0.6rem; color: var(--accent-primary);">↗ details</span></div>
+                        <div style="font-size: 1.35rem; font-weight: 700; ${userPE ? 'color: var(--accent-primary);' : ''}">${pePS > 0 ? '$' + pePS.toFixed(2) : '—'}</div>
+                        ${userBadge(!!userPE, peDiff)}
                     </div>
                 </div>
             </div>
@@ -1482,13 +1543,14 @@ function showValuationResults(result) {
             <!-- Result -->
             <div style="padding: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
                 <div>
-                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Fair Value</div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Fair Value${hasUserValues ? ' (Yours)' : ''}</div>
                     <div style="font-size: 2rem; font-weight: 800; color: var(--accent-primary);">$${finalPS.toFixed(2)}</div>
+                    ${hasUserValues ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">AXIOM: $${result.final_price_per_share?.toFixed(2) || '—'}</div>` : ''}
                 </div>
                 <div style="text-align: right;">
                     <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">vs Market</div>
-                    <div style="font-size: 1.4rem; font-weight: 700; color: ${result.upside_pct >= 0 ? '#22c55e' : '#ef4444'};">
-                        ${result.upside_pct >= 0 ? '+' : ''}${result.upside_pct.toFixed(1)}%
+                    <div style="font-size: 1.4rem; font-weight: 700; color: ${displayUpside >= 0 ? '#22c55e' : '#ef4444'};">
+                        ${displayUpside >= 0 ? '+' : ''}${displayUpside.toFixed(1)}%
                     </div>
                     <div style="font-size: 0.75rem; color: var(--text-muted);">Current: $${result.current_price.toFixed(2)}</div>
                 </div>
@@ -1540,6 +1602,1144 @@ function showValuationResults(result) {
     
     document.getElementById('valuation-results').innerHTML = html;
 }
+
+// ============================================
+// DCF DETAILS MODAL
+// ============================================
+
+let dcfDetailsCache = null;
+let dcfBaseInputs = null;
+
+// DCF Recalculation Engine (client-side)
+function recalculateDCF() {
+    if (!dcfBaseInputs) return;
+
+    const base = dcfBaseInputs;
+
+    // Get user-adjusted values from inputs
+    const wacc = parseFloat(document.getElementById('sens-wacc-input')?.value || base.wacc * 100) / 100;
+    const termGrowth = parseFloat(document.getElementById('sens-term-growth-input')?.value || base.terminal_growth * 100) / 100;
+    const revenueGrowthY1 = parseFloat(document.getElementById('sens-revenue-growth-input')?.value || base.growth_y1 * 100) / 100;
+    const ebitdaMargin = parseFloat(document.getElementById('sens-margin-input')?.value || base.ebitda_margin * 100) / 100;
+
+    // Scale growth rates proportionally based on Y1 change
+    const growthRatio = base.growth_y1 > 0 ? revenueGrowthY1 / base.growth_y1 : 1;
+    const g1 = revenueGrowthY1;
+    const g2 = base.growth_y2 * growthRatio;
+    const g3 = base.growth_y3 * growthRatio;
+    const growthSchedule = [g1, g1, g2, g2, g3, g3, (g3 + termGrowth)/2, termGrowth + 0.01, termGrowth + 0.005, termGrowth];
+
+    // Recalculate projections
+    let currentRevenue = base.revenue;
+    let totalPvFcf = 0;
+    const projectedFcf = [];
+    const newDetails = [];
+
+    for (let year = 1; year <= 10; year++) {
+        const growthRate = growthSchedule[year - 1];
+        currentRevenue *= (1 + growthRate);
+
+        const yearEbitda = currentRevenue * ebitdaMargin;
+        const yearDa = currentRevenue * base.da_ratio;
+        const yearEbit = yearEbitda - yearDa;
+        const yearNopat = yearEbit * (1 - base.tax_rate);
+        const yearCapex = currentRevenue * base.capex_pct;
+        const yearWc = base.wc_change * (currentRevenue / base.revenue);
+        const yearFcf = yearNopat + yearDa - yearCapex - yearWc;
+
+        const discountFactor = 1 / Math.pow(1 + wacc, year);
+        const pvFcf = yearFcf * discountFactor;
+        totalPvFcf += pvFcf;
+
+        projectedFcf.push(yearFcf);
+        newDetails.push({
+            year, growth_rate: growthRate, revenue: currentRevenue,
+            ebitda: yearEbitda, da: yearDa, ebit: yearEbit, nopat: yearNopat,
+            capex: yearCapex, wc_change: yearWc, fcf: yearFcf,
+            discount_factor: discountFactor, pv_fcf: pvFcf
+        });
+    }
+
+    // Terminal value
+    const terminalFcf = projectedFcf[9] * (1 + termGrowth);
+    const terminalValue = terminalFcf / (wacc - termGrowth);
+    const pvTerminal = terminalValue / Math.pow(1 + wacc, 10);
+
+    // Enterprise and equity value
+    const enterpriseValue = totalPvFcf + pvTerminal;
+    const equityValue = enterpriseValue + base.cash - base.debt;
+    const pricePerShare = equityValue / base.shares;
+
+    // Format helpers
+    const fmt = (val) => {
+        if (Math.abs(val) >= 1e12) return '$' + (val / 1e12).toFixed(2) + 'T';
+        if (Math.abs(val) >= 1e9) return '$' + (val / 1e9).toFixed(2) + 'B';
+        if (Math.abs(val) >= 1e6) return '$' + (val / 1e6).toFixed(2) + 'M';
+        return '$' + val.toFixed(2);
+    };
+    const pct = (val) => (val * 100).toFixed(2) + '%';
+
+    // Update projection table cells
+    newDetails.forEach((d, i) => {
+        const col = i + 1;
+        const updateCell = (row, val, format) => {
+            const cell = document.querySelector(`#dcf-table tr[data-row="${row}"] td:nth-child(${col + 1})`);
+            if (cell) cell.textContent = format === 'pct' ? pct(val) : fmt(val);
+        };
+        updateCell('growth', d.growth_rate, 'pct');
+        updateCell('revenue', d.revenue, 'dollar');
+        updateCell('ebitda', d.ebitda, 'dollar');
+        updateCell('da', d.da, 'dollar');
+        updateCell('ebit', d.ebit, 'dollar');
+        updateCell('nopat', d.nopat, 'dollar');
+        updateCell('da2', d.da, 'dollar');
+        updateCell('capex', d.capex, 'dollar');
+        updateCell('wc', d.wc_change, 'dollar');
+        updateCell('fcf', d.fcf, 'dollar');
+        updateCell('df', d.discount_factor, 'pct');
+        updateCell('pvfcf', d.pv_fcf, 'dollar');
+    });
+
+    // Update summary boxes
+    document.getElementById('sens-total-pv-fcf').textContent = fmt(totalPvFcf);
+    document.getElementById('sens-terminal-value').textContent = fmt(terminalValue);
+    document.getElementById('sens-pv-terminal').textContent = fmt(pvTerminal);
+
+    // Update final valuation
+    const baseEquity = dcfDetailsCache?.calculated?.equity_value?.value || base.market_cap;
+    const change = ((equityValue - baseEquity) / baseEquity) * 100;
+    const changeClass = change >= 0 ? 'color: #22c55e;' : 'color: #ef4444;';
+
+    document.getElementById('sens-equity-value').innerHTML = `
+        <div style="font-size: 1.4rem; font-weight: 700;">${fmt(equityValue)}</div>
+        <div style="font-size: 0.85rem; ${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(1)}% vs base</div>
+    `;
+    document.getElementById('sens-price-per-share').innerHTML = `
+        <div style="font-size: 1.4rem; font-weight: 700;">$${pricePerShare.toFixed(2)}</div>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">per share</div>
+    `;
+}
+
+function syncSensInput(field) {
+    const slider = document.getElementById(`sens-${field}`);
+    const input = document.getElementById(`sens-${field}-input`);
+    if (slider && input) input.value = parseFloat(slider.value).toFixed(2);
+    recalculateDCF();
+}
+
+function syncSensSlider(field) {
+    const slider = document.getElementById(`sens-${field}`);
+    const input = document.getElementById(`sens-${field}-input`);
+    if (slider && input) slider.value = parseFloat(input.value) || 0;
+    recalculateDCF();
+}
+
+function resetSensitivity() {
+    if (!dcfBaseInputs) return;
+    const wacc = dcfBaseInputs.wacc * 100;
+    const termGrowth = dcfBaseInputs.terminal_growth * 100;
+    const growthY1 = dcfBaseInputs.growth_y1 * 100;
+    const margin = dcfBaseInputs.ebitda_margin * 100;
+
+    document.getElementById('sens-wacc').value = wacc;
+    document.getElementById('sens-wacc-input').value = wacc.toFixed(2);
+    document.getElementById('sens-term-growth').value = termGrowth;
+    document.getElementById('sens-term-growth-input').value = termGrowth.toFixed(2);
+    document.getElementById('sens-revenue-growth').value = growthY1;
+    document.getElementById('sens-revenue-growth-input').value = growthY1.toFixed(2);
+    document.getElementById('sens-margin').value = margin;
+    document.getElementById('sens-margin-input').value = margin.toFixed(2);
+
+    // Reset display to exact base values
+    const baseEquity = dcfDetailsCache?.calculated?.equity_value?.value;
+    const basePPS = dcfDetailsCache?.calculated?.price_per_share?.value;
+    const fmt = (val) => {
+        if (Math.abs(val) >= 1e12) return '$' + (val / 1e12).toFixed(2) + 'T';
+        if (Math.abs(val) >= 1e9) return '$' + (val / 1e9).toFixed(2) + 'B';
+        if (Math.abs(val) >= 1e6) return '$' + (val / 1e6).toFixed(2) + 'M';
+        return '$' + val.toFixed(2);
+    };
+    if (baseEquity) {
+        document.getElementById('sens-equity-value').innerHTML = `
+            <div style="font-size: 1.4rem; font-weight: 700;">${fmt(baseEquity)}</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">AXIOM Base</div>
+        `;
+    }
+    if (basePPS) {
+        document.getElementById('sens-price-per-share').innerHTML = `
+            <div style="font-size: 1.4rem; font-weight: 700;">$${basePPS.toFixed(2)}</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">per share</div>
+        `;
+    }
+}
+
+function saveUserValuation() {
+    if (!dcfBaseInputs || !currentCompanyId) return;
+
+    const base = dcfBaseInputs;
+    const wacc = parseFloat(document.getElementById('sens-wacc-input')?.value || base.wacc * 100) / 100;
+    const termGrowth = parseFloat(document.getElementById('sens-term-growth-input')?.value || base.terminal_growth * 100) / 100;
+    const revenueGrowthY1 = parseFloat(document.getElementById('sens-revenue-growth-input')?.value || base.growth_y1 * 100) / 100;
+    const ebitdaMargin = parseFloat(document.getElementById('sens-margin-input')?.value || base.ebitda_margin * 100) / 100;
+
+    // Scale growth rates proportionally based on Y1 change
+    const growthRatio = base.growth_y1 > 0 ? revenueGrowthY1 / base.growth_y1 : 1;
+    const g1 = revenueGrowthY1;
+    const g2 = base.growth_y2 * growthRatio;
+    const g3 = base.growth_y3 * growthRatio;
+    const growthSchedule = [g1, g1, g2, g2, g3, g3, (g3 + termGrowth)/2, termGrowth + 0.01, termGrowth + 0.005, termGrowth];
+
+    let currentRevenue = base.revenue;
+    let totalPvFcf = 0;
+    const projectedFcf = [];
+
+    for (let year = 1; year <= 10; year++) {
+        const growthRate = growthSchedule[year - 1];
+        currentRevenue *= (1 + growthRate);
+        const yearEbitda = currentRevenue * ebitdaMargin;
+        const yearDa = currentRevenue * base.da_ratio;
+        const yearEbit = yearEbitda - yearDa;
+        const yearNopat = yearEbit * (1 - base.tax_rate);
+        const yearCapex = currentRevenue * base.capex_pct;
+        const yearWc = base.wc_change * (currentRevenue / base.revenue);
+        const yearFcf = yearNopat + yearDa - yearCapex - yearWc;
+        const discountFactor = 1 / Math.pow(1 + wacc, year);
+        totalPvFcf += yearFcf * discountFactor;
+        projectedFcf.push(yearFcf);
+    }
+
+    const terminalFcf = projectedFcf[9] * (1 + termGrowth);
+    const terminalValue = terminalFcf / (wacc - termGrowth);
+    const pvTerminal = terminalValue / Math.pow(1 + wacc, 10);
+    const enterpriseValue = totalPvFcf + pvTerminal;
+    const equityValue = enterpriseValue + base.cash - base.debt;
+    const pricePerShare = equityValue / base.shares;
+
+    // Save to localStorage
+    const userValuations = JSON.parse(localStorage.getItem('userValuations') || '{}');
+    userValuations[currentCompanyId] = {
+        equityValue,
+        pricePerShare,
+        wacc: wacc * 100,
+        terminalGrowth: termGrowth * 100,
+        revenueGrowthY1: revenueGrowthY1 * 100,
+        ebitdaMargin: ebitdaMargin * 100,
+        savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('userValuations', JSON.stringify(userValuations));
+
+    // Show confirmation and update button UI
+    const isUpdate = document.getElementById('user-valuation-indicator')?.style.display !== 'none';
+    const btn = event.target.closest('button');
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = isUpdate ? '✓ Updated!' : '✓ Saved!';
+    btn.style.background = '#16a34a';
+
+    // Show remove button and indicator
+    const removeBtn = document.getElementById('remove-valuation-btn');
+    const indicator = document.getElementById('user-valuation-indicator');
+    if (removeBtn) removeBtn.style.display = 'block';
+    if (indicator) indicator.style.display = 'block';
+
+    // Update save button text
+    setTimeout(() => {
+        btn.innerHTML = 'Update Your Valuation';
+        btn.style.background = 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)';
+    }, 1500);
+
+    // Refresh company cards to show new valuation
+    if (typeof loadCompanies === 'function') loadCompanies();
+}
+
+function removeUserValuation() {
+    if (!currentCompanyId) return;
+
+    clearUserValuation(currentCompanyId);
+
+    // Reset inputs to AXIOM base values
+    resetSensitivity();
+
+    // Update UI
+    const removeBtn = document.getElementById('remove-valuation-btn');
+    const indicator = document.getElementById('user-valuation-indicator');
+    const saveBtn = document.querySelector('#save-valuation-btn');
+
+    if (removeBtn) removeBtn.style.display = 'none';
+    if (indicator) indicator.style.display = 'none';
+    if (saveBtn) saveBtn.innerHTML = 'Save Your Valuation';
+
+    // Show confirmation
+    if (removeBtn) {
+        const origHtml = removeBtn.innerHTML;
+        removeBtn.innerHTML = '✓ Removed';
+        removeBtn.style.display = 'block';
+        setTimeout(() => {
+            removeBtn.style.display = 'none';
+        }, 1500);
+    }
+}
+
+function getUserValuation(companyId) {
+    const userValuations = JSON.parse(localStorage.getItem('userValuations') || '{}');
+    return userValuations[companyId] || null;
+}
+
+function clearUserValuation(companyId) {
+    const userValuations = JSON.parse(localStorage.getItem('userValuations') || '{}');
+    delete userValuations[companyId];
+    localStorage.setItem('userValuations', JSON.stringify(userValuations));
+    if (typeof loadCompanies === 'function') loadCompanies();
+}
+
+function toggleDCFDetails() {
+    if (!currentCompanyId) return;
+    window.open(`/dcf/${currentCompanyId}`, '_blank');
+}
+
+function closeDCFModal() {
+    const modal = document.getElementById('dcf-details-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+}
+
+function renderDCFDetails(dcf) {
+    const ticker = dcf.ticker || '';
+    const baseUrl = 'https://finance.yahoo.com/quote/' + ticker;
+    const inputs = dcf.inputs || {};
+    const assumptions = dcf.assumptions || {};
+
+    // Helper to format large numbers
+    const fmt = (val) => {
+        if (val === null || val === undefined) return '—';
+        if (Math.abs(val) >= 1e12) return '$' + (val / 1e12).toFixed(2) + 'T';
+        if (Math.abs(val) >= 1e9) return '$' + (val / 1e9).toFixed(2) + 'B';
+        if (Math.abs(val) >= 1e6) return '$' + (val / 1e6).toFixed(2) + 'M';
+        return '$' + val.toFixed(2);
+    };
+
+    // Helper to format percentages
+    const pct = (val) => val !== null && val !== undefined ? (val * 100).toFixed(2) + '%' : '—';
+
+    // Helper: value as link (yahoo) or tooltip span
+    const valLink = (val, label, source, urlPath, note) => {
+        const display = typeof val === 'number' ? (Math.abs(val) < 1 ? pct(val) : (Math.abs(val) > 1000 ? fmt(val) : val.toFixed(2))) : val;
+        if (source === 'yahoo_finance' && ticker && urlPath !== undefined) {
+            return `<a href="${baseUrl}${urlPath || ''}" target="_blank" rel="noopener" style="color: var(--accent-primary); text-decoration: underline; cursor: pointer;" title="${label}">${display}</a>`;
+        }
+        return `<span style="color: var(--text-primary); border-bottom: 1px dotted var(--text-muted); cursor: help;" title="${note || label}">${display}</span>`;
+    };
+
+    // Check if this is an alternative model (banks, REITs)
+    if (dcf.model_type === 'alternative') {
+        return `
+            <div style="padding: 20px; background: var(--bg-secondary);">
+                <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 12px;">Alternative Valuation Model</div>
+                <div style="background: var(--bg-primary); border-radius: 8px; padding: 16px;">
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.85rem;">${dcf.note || 'This company uses an alternative valuation model.'}</p>
+                    <p style="margin: 10px 0 0; color: var(--text-muted); font-size: 0.75rem;">${dcf.reason || ''}</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // Build assumptions section
+    let assumptionsHtml = '';
+    if (assumptions && Object.keys(assumptions).length > 0) {
+        assumptionsHtml = `
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color);">
+                <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
+                    Key Assumptions
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                    ${Object.entries(assumptions).map(([key, a]) => `
+                        <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;" title="${a.note || ''}">
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${a.label || key}</div>
+                            <div style="font-size: 1rem; font-weight: 600; color: var(--text-primary);">
+                                ${pct(a.value)}
+                            </div>
+                            ${a.note ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">${a.note}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Build calculated section with linked values
+    let calculatedHtml = '';
+    if (dcf.calculated) {
+        const calc = dcf.calculated;
+        const tg = assumptions.terminal_growth || {};
+
+        // Helper for tooltip values (percentages/small numbers)
+        const tip = (val, label, note) => `<span style="color: var(--text-primary); border-bottom: 1px dotted var(--text-muted); cursor: help; font-size: 0.85rem; font-weight: 500;" title="${note || label}">${typeof val === 'number' ? (Math.abs(val) < 1 ? pct(val) : val.toFixed(2)) : val}</span>`;
+        // Helper for large dollar values (billions/millions)
+        const tipDollar = (val, label, note) => `<span style="color: var(--text-primary); border-bottom: 1px dotted var(--text-muted); cursor: help; font-size: 0.85rem; font-weight: 500;" title="${note || label}">${fmt(val)}</span>`;
+        // Helper for linked values
+        const link = (val, label, urlPath) => ticker ? `<a href="${baseUrl}${urlPath || ''}" target="_blank" rel="noopener" style="color: var(--accent-primary); text-decoration: underline; font-size: 0.85rem; font-weight: 500;" title="${label}">${typeof val === 'number' ? (Math.abs(val) < 1 ? pct(val) : (Math.abs(val) > 1000 ? fmt(val) : val.toFixed(2))) : val}</a>` : tip(val, label, label);
+
+        // Get component values from backend
+        const coe = calc.cost_of_equity?.components || {};
+        const cod = calc.cost_of_debt?.components || {};
+        const wacc = calc.wacc?.components || {};
+        const ev = calc.enterprise_value?.components || {};
+        const eqv = calc.equity_value?.components || {};
+
+        const rows = [
+            {
+                key: 'cost_of_equity',
+                label: 'Cost of Equity',
+                formula: 'Rf + β × MRP',
+                components: `${tip(coe.rf, 'Risk-Free Rate', '10-Year Treasury yield')} + ${link(coe.beta, 'Beta (5Y Monthly)', '/key-statistics')} × ${tip(coe.mrp, 'Market Risk Premium', 'Historical avg excess return of stocks over bonds')}`,
+            },
+            {
+                key: 'cost_of_debt',
+                label: 'Cost of Debt',
+                formula: 'Rf + Credit Spread',
+                components: `${tip(cod.rf, 'Risk-Free Rate', '10-Year Treasury yield')} + ${tip(cod.credit_spread, 'Credit Spread', 'Damodaran synthetic rating based on interest coverage ratio')}`,
+            },
+            {
+                key: 'wacc',
+                label: 'WACC',
+                formula: '(E/V × Re) + (D/V × Rd × (1-T))',
+                components: `(${tip(wacc.weight_equity, 'Equity Weight', 'Market Cap / (Market Cap + Net Debt)')} × ${tip(wacc.cost_of_equity, 'Cost of Equity', 'CAPM: Rf + β × MRP')}) + (${tip(wacc.weight_debt, 'Debt Weight', 'Net Debt / (Market Cap + Net Debt)')} × ${tip(wacc.cost_of_debt, 'Cost of Debt', 'Rf + Credit Spread')} × (1 - ${tip(wacc.tax_rate, 'Tax Rate', 'Effective tax rate from financials')}))`,
+            },
+            {
+                key: 'terminal_value',
+                label: 'Terminal Value',
+                formula: 'FCF₁₀ × (1+g) / (WACC - g)',
+                components: `Final year FCF × (1 + ${tip(tg.value, 'Terminal Growth', tg.note || 'Long-term GDP growth proxy')}) / (WACC - ${tip(tg.value, 'Terminal Growth', tg.note || 'Long-term GDP growth proxy')})`,
+            },
+            {
+                key: 'enterprise_value',
+                label: 'Enterprise Value',
+                formula: 'PV of FCF + PV of Terminal Value',
+                components: `${tipDollar(ev.pv_fcf, 'PV of FCF', 'Sum of discounted 10-year free cash flows')} + ${tipDollar(ev.pv_terminal, 'PV of Terminal Value', 'Terminal value discounted to present')}`,
+            },
+            {
+                key: 'equity_value',
+                label: 'Equity Value',
+                formula: 'EV + Cash - Debt',
+                components: `${tipDollar(eqv.enterprise_value, 'Enterprise Value', 'PV of FCF + PV of Terminal Value')} + ${link(eqv.cash, 'Cash & Equivalents', '/balance-sheet')} - ${link(eqv.debt, 'Total Debt', '/balance-sheet')}`,
+            },
+        ];
+
+        calculatedHtml = `
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color);">
+                <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
+                    Calculated Values
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    ${rows.map(row => {
+                        const calc = dcf.calculated[row.key] || {};
+                        return `
+                        <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); cursor: help; border-bottom: 1px dotted var(--text-muted);" title="${row.formula}">${row.label}</span>
+                                <span style="font-size: 1.2rem; font-weight: 700; color: var(--accent-primary);">${calc.result || '—'}</span>
+                            </div>
+                            <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6;">${row.components}</div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Build FCF projection table with full breakdown
+    let projectionHtml = '';
+    if (dcf.projection && dcf.projection.details && dcf.projection.details.length > 0) {
+        const details = dcf.projection.details;
+        const years = details.map(d => d.year);
+        const base = dcf.base_inputs || {};
+
+        const row = (label, rowId, key, format, style = '', tooltip = '', urlPath = null) => {
+            const cells = details.map(d => {
+                const val = d[key];
+                let display = format === 'pct' ? pct(val) : fmt(val);
+                return `<td style="padding: 6px 8px; text-align: right; font-size: 0.8rem;">${display}</td>`;
+            }).join('');
+            const labelHtml = urlPath && ticker
+                ? `<a href="${baseUrl}${urlPath}" target="_blank" rel="noopener" style="color: var(--accent-primary); text-decoration: underline;" title="${tooltip} — click to verify on Yahoo Finance">${label} ↗</a>`
+                : `<span title="${tooltip}">${label}</span>`;
+            return `<tr data-row="${rowId}" style="${style}"><td style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap; ${style}">${labelHtml}</td>${cells}</tr>`;
+        };
+
+        projectionHtml = `
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                            Sensitivity Analysis
+                        </span>
+                        <button onclick="resetSensitivity()" style="padding: 5px 14px; font-size: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; font-weight: 600; color: var(--text-secondary);">↺ Reset to AXIOM</button>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; background: var(--bg-primary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <div>
+                        <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 6px;">WACC</label>
+                        <input type="range" id="sens-wacc" min="5" max="20" step="0.01" value="${(base.wacc || 0.10) * 100}" oninput="syncSensInput('wacc')" style="width: 100%;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 6px;">
+                            <input type="number" id="sens-wacc-input" step="0.01" value="${((base.wacc || 0.10) * 100).toFixed(2)}" oninput="syncSensSlider('wacc')" style="width: 55px; text-align: right; font-size: 0.9rem; font-weight: 600; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);">
+                            <span style="font-size: 0.9rem; font-weight: 600;">%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 6px;">Terminal Growth</label>
+                        <input type="range" id="sens-term-growth" min="0" max="5" step="0.01" value="${(base.terminal_growth || 0.025) * 100}" oninput="syncSensInput('term-growth')" style="width: 100%;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 6px;">
+                            <input type="number" id="sens-term-growth-input" step="0.01" value="${((base.terminal_growth || 0.025) * 100).toFixed(2)}" oninput="syncSensSlider('term-growth')" style="width: 55px; text-align: right; font-size: 0.9rem; font-weight: 600; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);">
+                            <span style="font-size: 0.9rem; font-weight: 600;">%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 6px;">Revenue Growth (Y1)</label>
+                        <input type="range" id="sens-revenue-growth" min="0" max="50" step="0.01" value="${(base.growth_y1 || 0.10) * 100}" oninput="syncSensInput('revenue-growth')" style="width: 100%;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 6px;">
+                            <input type="number" id="sens-revenue-growth-input" step="0.01" value="${((base.growth_y1 || 0.10) * 100).toFixed(2)}" oninput="syncSensSlider('revenue-growth')" style="width: 55px; text-align: right; font-size: 0.9rem; font-weight: 600; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);">
+                            <span style="font-size: 0.9rem; font-weight: 600;">%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 6px;">EBITDA Margin</label>
+                        <input type="range" id="sens-margin" min="5" max="60" step="0.01" value="${(base.ebitda_margin || 0.20) * 100}" oninput="syncSensInput('margin')" style="width: 100%;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 6px;">
+                            <input type="number" id="sens-margin-input" step="0.01" value="${((base.ebitda_margin || 0.20) * 100).toFixed(2)}" oninput="syncSensSlider('margin')" style="width: 55px; text-align: right; font-size: 0.9rem; font-weight: 600; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);">
+                            <span style="font-size: 0.9rem; font-weight: 600;">%</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;">
+                    <div id="sens-equity-value" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 16px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.4rem; font-weight: 700;">${fmt(dcf.calculated?.equity_value?.value || 0)}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.8;">Equity Value</div>
+                    </div>
+                    <div id="sens-price-per-share" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 16px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.4rem; font-weight: 700;">$${(dcf.calculated?.price_per_share?.value || 0).toFixed(2)}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.8;">per share</div>
+                    </div>
+                </div>
+            </div>
+            <div style="padding: 16px 20px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
+                    10-Year Cash Flow Projection
+                </div>
+                <div style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <table id="dcf-table" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);">
+                                <th style="padding: 10px 12px; text-align: left; color: white; font-size: 0.8rem; font-weight: 600;">Metric</th>
+                                ${years.map(y => `<th style="padding: 10px 8px; text-align: right; color: white; font-size: 0.8rem; font-weight: 600;">Y${y}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody style="background: var(--bg-primary);">
+                            ${row('Growth Rate', 'growth', 'growth_rate', 'pct', 'color: var(--text-muted); font-style: italic;', 'Annual revenue growth rate', '/analysis')}
+                            ${row('Revenue', 'revenue', 'revenue', 'dollar', 'font-weight: 600; border-top: 1px solid var(--border-color);', 'Projected revenue', '/financials')}
+                            ${row('EBITDA', 'ebitda', 'ebitda', 'dollar', '', 'EBITDA margin applied to revenue', '/financials')}
+                            ${row('(-) D&A', 'da', 'da', 'dollar', 'color: var(--text-muted);', 'Depreciation & Amortization', '/cash-flow')}
+                            ${row('= EBIT', 'ebit', 'ebit', 'dollar', 'font-weight: 500; border-top: 1px solid var(--border-color);', 'EBITDA minus D&A')}
+                            ${row('= NOPAT', 'nopat', 'nopat', 'dollar', 'font-weight: 500;', 'EBIT × (1 - Tax Rate)', '/financials')}
+                            ${row('(+) D&A', 'da2', 'da', 'dollar', 'color: #22c55e;', 'Add back non-cash depreciation', '/cash-flow')}
+                            ${row('(-) CapEx', 'capex', 'capex', 'dollar', 'color: #ef4444;', 'Capital expenditures', '/cash-flow')}
+                            ${row('(-) ΔWC', 'wc', 'wc_change', 'dollar', 'color: #ef4444;', 'Working capital change', '/balance-sheet')}
+                            ${row('= Free Cash Flow', 'fcf', 'fcf', 'dollar', 'font-weight: 700; background: var(--bg-secondary); border-top: 2px solid var(--border-color);', 'NOPAT + D&A - CapEx - ΔWC')}
+                            ${row('Discount Factor', 'df', 'discount_factor', 'pct', 'color: var(--text-muted); font-style: italic; border-top: 1px solid var(--border-color);', '1 / (1 + WACC)^year')}
+                            ${row('PV of FCF', 'pvfcf', 'pv_fcf', 'dollar', 'font-weight: 600; color: var(--accent-primary);', 'FCF × Discount Factor')}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                    <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 4px;">Total PV of FCF</div>
+                        <div id="sens-total-pv-fcf" style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary);">${fmt(dcf.projection.total_pv_fcf)}</div>
+                    </div>
+                    <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 4px;">Terminal Value</div>
+                        <div id="sens-terminal-value" style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary);">${fmt(dcf.projection.terminal_value)}</div>
+                    </div>
+                    <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 4px;">PV of Terminal Value</div>
+                        <div id="sens-pv-terminal" style="font-size: 1.1rem; font-weight: 700; color: var(--accent-primary);">${fmt(dcf.projection.pv_terminal_value)}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Check if user has a saved valuation
+    const savedValuation = getUserValuation(currentCompanyId);
+    const hasSaved = !!savedValuation;
+
+    // Save button HTML with indicator and remove option
+    const saveButtonHtml = dcf.base_inputs ? `
+        <div style="padding: 20px; border-top: 1px solid var(--border-color);">
+            <div id="user-valuation-indicator" style="display: ${hasSaved ? 'block' : 'none'}; margin-bottom: 12px; padding: 10px 14px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary);">
+                Your custom valuation: <strong>$${hasSaved ? savedValuation.pricePerShare.toFixed(2) : '—'}</strong>/share
+                <span style="margin-left: 8px; color: var(--text-muted);">Saved ${hasSaved ? new Date(savedValuation.savedAt).toLocaleDateString() : ''}</span>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button id="save-valuation-btn" onclick="saveUserValuation()" style="flex: 1; padding: 14px 24px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.95rem;">
+                    ${hasSaved ? 'Update Your Valuation' : 'Save Your Valuation'}
+                </button>
+                <button id="remove-valuation-btn" onclick="removeUserValuation()" style="display: ${hasSaved ? 'block' : 'none'}; padding: 14px 18px; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    Remove
+                </button>
+            </div>
+        </div>
+    ` : '';
+
+    return `
+        <div style="background: var(--bg-secondary); padding-bottom: 0;">
+            ${assumptionsHtml}
+            ${calculatedHtml}
+            ${projectionHtml}
+            ${saveButtonHtml}
+        </div>
+    `;
+}
+
+// ============================================
+// EV/EBITDA DETAILS MODAL
+// ============================================
+
+let evEbitdaBaseInputs = null;
+
+function toggleEVEBITDADetails() {
+    if (!currentCompanyId) return;
+    window.open(`/ev-ebitda/${currentCompanyId}`, '_blank');
+}
+
+function closeEVEBITDAModal() {
+    const modal = document.getElementById('ev-ebitda-details-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+}
+
+function renderEVEBITDADetails(ev) {
+    const ticker = ev.ticker || '';
+    const baseUrl = 'https://finance.yahoo.com/quote/' + ticker;
+    const inputs = ev.inputs || {};
+    const assumptions = ev.assumptions || {};
+    const calculated = ev.calculated || {};
+    const base = ev.base_inputs || {};
+
+    const fmt = (val) => {
+        if (val === null || val === undefined) return '—';
+        if (Math.abs(val) >= 1e12) return `$${(val/1e12).toFixed(2)}T`;
+        if (Math.abs(val) >= 1e9) return `$${(val/1e9).toFixed(2)}B`;
+        if (Math.abs(val) >= 1e6) return `$${(val/1e6).toFixed(1)}M`;
+        return `$${val.toLocaleString()}`;
+    };
+
+    const savedValuation = getUserEVEBITDAValuation(currentCompanyId);
+    const hasSaved = !!savedValuation;
+
+    const evMultipleNote = assumptions.ev_ebitda_multiple?.note || `Based on ${base.sector || 'industry'} sector`;
+    const evMultipleTooltip = `EV/EBITDA Multiple: ${assumptions.ev_ebitda_multiple?.value?.toFixed(1)}x&#10;&#10;${evMultipleNote}&#10;&#10;This multiple shows what acquirers typically pay relative to cash flow generation. It's capital-structure neutral, making it ideal for comparing companies with different debt levels.`;
+
+    // Assumption card for the multiple
+    const assumptionsHtml = `
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em;">
+                Key Assumption
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; display: flex; align-items: center; gap: 20px;">
+                <div style="flex: 1;">
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">EV/EBITDA Multiple</div>
+                    <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent-primary);">${assumptions.ev_ebitda_multiple?.value?.toFixed(1)}x</div>
+                </div>
+                <div style="flex: 2; padding-left: 20px; border-left: 1px solid var(--border-color);">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                        ${evMultipleNote}. This multiple reflects what acquirers typically pay relative to operating cash flow — it's capital-structure neutral, ideal for comparing companies with different debt levels.
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const calculationHtml = `
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.05em;">
+                Valuation Calculation
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 32px;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; font-size: 1.5rem;">
+                    <a href="${baseUrl}/financials" target="_blank" title="EBITDA (TTM)&#10;Earnings Before Interest, Taxes, Depreciation & Amortization&#10;&#10;Click to verify on Yahoo Finance · Income Statement" style="font-weight: 700; color: var(--accent-primary); text-decoration: none; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${fmt(inputs.ebitda?.value)}</a>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">×</span>
+                    <span title="${evMultipleTooltip}" style="font-weight: 700; color: var(--accent-primary); cursor: help; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${assumptions.ev_ebitda_multiple?.value?.toFixed(1)}x</span>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">=</span>
+                    <span title="Implied Enterprise Value&#10;Computed from EBITDA × Multiple" style="font-weight: 700; color: var(--text-primary); cursor: help; border-bottom: 2px dotted var(--text-muted); padding-bottom: 2px;">${fmt(calculated.implied_ev?.value)}</span>
+                </div>
+                <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; font-size: 1.5rem;">
+                    <span title="Enterprise Value from above" style="font-weight: 700; color: var(--text-primary); cursor: help; border-bottom: 2px dotted var(--text-muted); padding-bottom: 2px;">${fmt(calculated.implied_ev?.value)}</span>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">+</span>
+                    <a href="${baseUrl}/balance-sheet" target="_blank" title="Cash & Equivalents&#10;Added because equity holders get this cash&#10;&#10;Click to verify on Yahoo Finance · Balance Sheet" style="font-weight: 700; color: var(--accent-primary); text-decoration: none; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${fmt(inputs.cash?.value)}</a>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">−</span>
+                    <a href="${baseUrl}/balance-sheet" target="_blank" title="Total Debt&#10;Subtracted because debt holders have first claim&#10;&#10;Click to verify on Yahoo Finance · Balance Sheet" style="font-weight: 700; color: var(--accent-primary); text-decoration: none; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${fmt(inputs.debt?.value)}</a>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">=</span>
+                    <span title="Implied Equity Value&#10;What shareholders' stake is worth" style="font-weight: 700; color: var(--accent-primary); cursor: help; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${fmt(calculated.implied_equity?.value)}</span>
+                </div>
+                <div style="text-align: center; margin-top: 16px; font-size: 0.75rem; color: var(--text-muted);">
+                    Click values to verify on Yahoo Finance
+                </div>
+            </div>
+            <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.7rem; font-weight: 700;">${fmt(calculated.implied_equity?.value)}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.85; margin-top: 4px;">Implied Equity Value</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.7rem; font-weight: 700;">$${calculated.price_per_share?.value?.toFixed(2) || '—'}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.85; margin-top: 4px;">Fair Value per Share</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const sensitivityHtml = base.ebitda ? `
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                    Sensitivity Analysis
+                </div>
+                <button onclick="resetEVEBITDASensitivity()" style="padding: 6px 14px; background: transparent; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s ease;" onmouseenter="this.style.borderColor='var(--accent-primary)'; this.style.color='var(--accent-primary)';" onmouseleave="this.style.borderColor='var(--border-color)'; this.style.color='var(--text-muted)';">
+                    Reset to AXIOM
+                </button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center;">
+                <div style="padding: 20px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 12px;">EV/EBITDA Multiple</label>
+                    <input type="range" id="ev-sens-multiple" min="5" max="30" step="0.1" value="${base.ev_ebitda_multiple || 15}" oninput="syncEVInput('multiple')" style="width: 100%;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px;">
+                        <input type="number" id="ev-sens-multiple-input" step="0.1" value="${(base.ev_ebitda_multiple || 15).toFixed(1)}" oninput="syncEVSlider('multiple')" style="width: 70px; text-align: right; font-size: 1.1rem; font-weight: 600; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);">
+                        <span style="font-size: 1.1rem; font-weight: 600;">x</span>
+                    </div>
+                </div>
+                <div id="ev-sens-result" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 28px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.6rem; font-weight: 700;">$${calculated.price_per_share?.value?.toFixed(2) || '—'}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.85; margin-top: 6px;">Your Price Target</div>
+                    <div id="ev-sens-diff" style="font-size: 0.8rem; margin-top: 8px; opacity: 0.75;">vs AXIOM: +0.0%</div>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
+    const saveButtonHtml = base.ebitda ? `
+        <div style="padding: 24px;">
+            <div id="ev-user-valuation-indicator" style="display: ${hasSaved ? 'block' : 'none'}; margin-bottom: 16px; padding: 12px 16px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary);">
+                Your custom valuation: <strong>$${hasSaved ? savedValuation.pricePerShare.toFixed(2) : '—'}</strong>/share
+                <span style="margin-left: 8px; color: var(--text-muted);">Saved ${hasSaved ? new Date(savedValuation.savedAt).toLocaleDateString() : ''}</span>
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button id="ev-save-valuation-btn" onclick="saveEVEBITDAValuation()" style="flex: 1; padding: 14px 24px; background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.95rem; transition: all 0.2s ease;" onmouseenter="this.style.opacity='0.9'; this.style.transform='translateY(-1px)';" onmouseleave="this.style.opacity='1'; this.style.transform='translateY(0)';">
+                    ${hasSaved ? 'Update Your Valuation' : 'Save Your Valuation'}
+                </button>
+                <button id="ev-remove-valuation-btn" onclick="removeEVEBITDAValuation()" style="display: ${hasSaved ? 'block' : 'none'}; padding: 14px 18px; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease;" onmouseenter="this.style.background='#ef4444'; this.style.color='white';" onmouseleave="this.style.background='transparent'; this.style.color='#ef4444';">
+                    Remove
+                </button>
+            </div>
+        </div>
+    ` : '';
+
+    return `
+        <div style="background: var(--bg-secondary); padding-bottom: 0;">
+            ${assumptionsHtml}
+            ${calculationHtml}
+            ${sensitivityHtml}
+            ${saveButtonHtml}
+        </div>
+    `;
+}
+
+function syncEVInput(field) {
+    const slider = document.getElementById(`ev-sens-${field}`);
+    const input = document.getElementById(`ev-sens-${field}-input`);
+    if (slider && input) {
+        input.value = parseFloat(slider.value).toFixed(1);
+        recalculateEVEBITDA();
+    }
+}
+
+function syncEVSlider(field) {
+    const slider = document.getElementById(`ev-sens-${field}`);
+    const input = document.getElementById(`ev-sens-${field}-input`);
+    if (slider && input) {
+        slider.value = parseFloat(input.value);
+        recalculateEVEBITDA();
+    }
+}
+
+function recalculateEVEBITDA() {
+    if (!evEbitdaBaseInputs) return;
+
+    const base = evEbitdaBaseInputs;
+    const multiple = parseFloat(document.getElementById('ev-sens-multiple-input')?.value || base.ev_ebitda_multiple);
+
+    const impliedEV = base.ebitda * multiple;
+    const impliedEquity = impliedEV + base.cash - base.debt;
+    const pricePerShare = impliedEquity / base.shares;
+
+    // Update result display
+    const resultDiv = document.getElementById('ev-sens-result');
+    const diffDiv = document.getElementById('ev-sens-diff');
+    if (resultDiv) {
+        resultDiv.querySelector('div').textContent = `$${pricePerShare.toFixed(2)}`;
+    }
+
+    // Calculate diff vs AXIOM base
+    const axiomPrice = (base.ebitda * base.ev_ebitda_multiple + base.cash - base.debt) / base.shares;
+    const diff = ((pricePerShare - axiomPrice) / axiomPrice) * 100;
+    if (diffDiv) {
+        diffDiv.textContent = `vs AXIOM: ${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%`;
+        diffDiv.style.color = diff >= 0 ? '#22c55e' : '#ef4444';
+    }
+}
+
+function resetEVEBITDASensitivity() {
+    if (!evEbitdaBaseInputs) return;
+    const base = evEbitdaBaseInputs;
+
+    const slider = document.getElementById('ev-sens-multiple');
+    const input = document.getElementById('ev-sens-multiple-input');
+    if (slider) slider.value = base.ev_ebitda_multiple;
+    if (input) input.value = base.ev_ebitda_multiple.toFixed(1);
+
+    recalculateEVEBITDA();
+}
+
+function saveEVEBITDAValuation() {
+    if (!evEbitdaBaseInputs || !currentCompanyId) return;
+
+    const base = evEbitdaBaseInputs;
+    const multiple = parseFloat(document.getElementById('ev-sens-multiple-input')?.value || base.ev_ebitda_multiple);
+
+    const impliedEV = base.ebitda * multiple;
+    const impliedEquity = impliedEV + base.cash - base.debt;
+    const pricePerShare = impliedEquity / base.shares;
+
+    const userValuations = JSON.parse(localStorage.getItem('userEVEBITDAValuations') || '{}');
+    userValuations[currentCompanyId] = {
+        impliedEquity,
+        pricePerShare,
+        evEbitdaMultiple: multiple,
+        savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('userEVEBITDAValuations', JSON.stringify(userValuations));
+
+    // Show confirmation
+    const btn = event.target.closest('button');
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '✓ Saved!';
+    btn.style.background = '#16a34a';
+
+    const removeBtn = document.getElementById('ev-remove-valuation-btn');
+    const indicator = document.getElementById('ev-user-valuation-indicator');
+    if (removeBtn) removeBtn.style.display = 'block';
+    if (indicator) {
+        indicator.style.display = 'block';
+        indicator.innerHTML = `Your custom valuation: <strong>$${pricePerShare.toFixed(2)}</strong>/share <span style="margin-left: 8px; color: var(--text-muted);">Saved ${new Date().toLocaleDateString()}</span>`;
+    }
+
+    setTimeout(() => {
+        btn.innerHTML = 'Update Your Valuation';
+        btn.style.background = 'linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%)';
+    }, 1500);
+
+    if (typeof loadCompanies === 'function') loadCompanies();
+}
+
+function getUserEVEBITDAValuation(companyId) {
+    const userValuations = JSON.parse(localStorage.getItem('userEVEBITDAValuations') || '{}');
+    return userValuations[companyId] || null;
+}
+
+function removeEVEBITDAValuation() {
+    if (!currentCompanyId) return;
+
+    const userValuations = JSON.parse(localStorage.getItem('userEVEBITDAValuations') || '{}');
+    delete userValuations[currentCompanyId];
+    localStorage.setItem('userEVEBITDAValuations', JSON.stringify(userValuations));
+
+    resetEVEBITDASensitivity();
+
+    const removeBtn = document.getElementById('ev-remove-valuation-btn');
+    const indicator = document.getElementById('ev-user-valuation-indicator');
+    const saveBtn = document.getElementById('ev-save-valuation-btn');
+
+    if (removeBtn) removeBtn.style.display = 'none';
+    if (indicator) indicator.style.display = 'none';
+    if (saveBtn) saveBtn.innerHTML = 'Save Your Valuation';
+
+    if (typeof loadCompanies === 'function') loadCompanies();
+}
+
+// ============================================
+// P/E DETAILS MODAL
+// ============================================
+
+let peBaseInputs = null;
+
+function togglePEDetails() {
+    if (!currentCompanyId) return;
+    window.open(`/pe/${currentCompanyId}`, '_blank');
+}
+
+function closePEModal() {
+    const modal = document.getElementById('pe-details-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+}
+
+function renderPEDetails(pe) {
+    const ticker = pe.ticker || '';
+    const baseUrl = 'https://finance.yahoo.com/quote/' + ticker;
+    const inputs = pe.inputs || {};
+    const assumptions = pe.assumptions || {};
+    const calculated = pe.calculated || {};
+    const base = pe.base_inputs || {};
+
+    const fmt = (val) => {
+        if (val === null || val === undefined) return '—';
+        if (Math.abs(val) >= 1e12) return `$${(val/1e12).toFixed(2)}T`;
+        if (Math.abs(val) >= 1e9) return `$${(val/1e9).toFixed(2)}B`;
+        if (Math.abs(val) >= 1e6) return `$${(val/1e6).toFixed(1)}M`;
+        return `$${val.toLocaleString()}`;
+    };
+
+    const savedValuation = getUserPEValuation(currentCompanyId);
+    const hasSaved = !!savedValuation;
+
+    const peMultipleNote = assumptions.pe_multiple?.note || `Based on ${base.sector || 'industry'} sector`;
+    const peMultipleTooltip = `P/E Multiple: ${assumptions.pe_multiple?.value?.toFixed(1)}x&#10;&#10;${peMultipleNote}&#10;&#10;This multiple reflects what investors typically pay per dollar of earnings for comparable companies in this sector. Higher multiples indicate expectations of stronger future growth.`;
+
+    // Assumption card for the multiple
+    const assumptionsHtml = `
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em;">
+                Key Assumption
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; display: flex; align-items: center; gap: 20px;">
+                <div style="flex: 1;">
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">P/E Multiple</div>
+                    <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent-primary);">${assumptions.pe_multiple?.value?.toFixed(1)}x</div>
+                </div>
+                <div style="flex: 2; padding-left: 20px; border-left: 1px solid var(--border-color);">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                        ${peMultipleNote}. This reflects what investors typically pay per dollar of earnings. Higher multiples indicate expectations of stronger future growth.
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const calculationHtml = `
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.05em;">
+                Valuation Calculation
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 32px;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; font-size: 1.5rem;">
+                    <a href="${baseUrl}/financials" target="_blank" title="Net Income (TTM)&#10;Trailing twelve months profit after all expenses and taxes&#10;&#10;Click to verify on Yahoo Finance · Income Statement" style="font-weight: 700; color: var(--accent-primary); text-decoration: none; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${fmt(inputs.net_income?.value)}</a>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">×</span>
+                    <span title="${peMultipleTooltip}" style="font-weight: 700; color: var(--accent-primary); cursor: help; border-bottom: 2px dotted var(--accent-primary); padding-bottom: 2px;">${assumptions.pe_multiple?.value?.toFixed(1)}x</span>
+                    <span style="color: var(--text-muted); font-size: 1.6rem;">=</span>
+                    <span title="Implied Market Cap&#10;Computed from Net Income × P/E Multiple" style="font-weight: 700; color: var(--text-primary); cursor: help; border-bottom: 2px dotted var(--text-muted); padding-bottom: 2px;">${fmt(calculated.implied_market_cap?.value)}</span>
+                </div>
+                <div style="text-align: center; margin-top: 16px; font-size: 0.75rem; color: var(--text-muted);">
+                    Click values to verify on Yahoo Finance
+                </div>
+            </div>
+            <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.7rem; font-weight: 700;">${fmt(calculated.implied_market_cap?.value)}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.85; margin-top: 4px;">Implied Market Cap</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.7rem; font-weight: 700;">$${calculated.price_per_share?.value?.toFixed(2) || '—'}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.85; margin-top: 4px;">Fair Value per Share</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const sensitivityHtml = base.net_income ? `
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                    Sensitivity Analysis
+                </div>
+                <button onclick="resetPESensitivity()" style="padding: 6px 14px; background: transparent; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s ease;" onmouseenter="this.style.borderColor='var(--accent-primary)'; this.style.color='var(--accent-primary)';" onmouseleave="this.style.borderColor='var(--border-color)'; this.style.color='var(--text-muted)';">
+                    Reset to AXIOM
+                </button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center;">
+                <div style="padding: 20px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 12px;">P/E Multiple</label>
+                    <input type="range" id="pe-sens-multiple" min="5" max="50" step="0.1" value="${base.pe_multiple || 20}" oninput="syncPEInput('multiple')" style="width: 100%;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px;">
+                        <input type="number" id="pe-sens-multiple-input" step="0.1" value="${(base.pe_multiple || 20).toFixed(1)}" oninput="syncPESlider('multiple')" style="width: 70px; text-align: right; font-size: 1.1rem; font-weight: 600; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);">
+                        <span style="font-size: 1.1rem; font-weight: 600;">x</span>
+                    </div>
+                </div>
+                <div id="pe-sens-result" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 28px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 1.6rem; font-weight: 700;">$${calculated.price_per_share?.value?.toFixed(2) || '—'}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.85; margin-top: 6px;">Your Price Target</div>
+                    <div id="pe-sens-diff" style="font-size: 0.8rem; margin-top: 8px; opacity: 0.75;">vs AXIOM: +0.0%</div>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
+    const saveButtonHtml = base.net_income ? `
+        <div style="padding: 24px;">
+            <div id="pe-user-valuation-indicator" style="display: ${hasSaved ? 'block' : 'none'}; margin-bottom: 16px; padding: 12px 16px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary);">
+                Your custom valuation: <strong>$${hasSaved ? savedValuation.pricePerShare.toFixed(2) : '—'}</strong>/share
+                <span style="margin-left: 8px; color: var(--text-muted);">Saved ${hasSaved ? new Date(savedValuation.savedAt).toLocaleDateString() : ''}</span>
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button id="pe-save-valuation-btn" onclick="savePEValuation()" style="flex: 1; padding: 14px 24px; background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.95rem; transition: all 0.2s ease;" onmouseenter="this.style.opacity='0.9'; this.style.transform='translateY(-1px)';" onmouseleave="this.style.opacity='1'; this.style.transform='translateY(0)';">
+                    ${hasSaved ? 'Update Your Valuation' : 'Save Your Valuation'}
+                </button>
+                <button id="pe-remove-valuation-btn" onclick="removePEValuation()" style="display: ${hasSaved ? 'block' : 'none'}; padding: 14px 18px; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease;" onmouseenter="this.style.background='#ef4444'; this.style.color='white';" onmouseleave="this.style.background='transparent'; this.style.color='#ef4444';">
+                    Remove
+                </button>
+            </div>
+        </div>
+    ` : '';
+
+    return `
+        <div style="background: var(--bg-secondary); padding-bottom: 0;">
+            ${assumptionsHtml}
+            ${calculationHtml}
+            ${sensitivityHtml}
+            ${saveButtonHtml}
+        </div>
+    `;
+}
+
+function syncPEInput(field) {
+    const slider = document.getElementById(`pe-sens-${field}`);
+    const input = document.getElementById(`pe-sens-${field}-input`);
+    if (slider && input) {
+        input.value = parseFloat(slider.value).toFixed(1);
+        recalculatePE();
+    }
+}
+
+function syncPESlider(field) {
+    const slider = document.getElementById(`pe-sens-${field}`);
+    const input = document.getElementById(`pe-sens-${field}-input`);
+    if (slider && input) {
+        slider.value = parseFloat(input.value);
+        recalculatePE();
+    }
+}
+
+function recalculatePE() {
+    if (!peBaseInputs) return;
+
+    const base = peBaseInputs;
+    const multiple = parseFloat(document.getElementById('pe-sens-multiple-input')?.value || base.pe_multiple);
+
+    const impliedMarketCap = base.net_income * multiple;
+    const pricePerShare = impliedMarketCap / base.shares;
+
+    const resultDiv = document.getElementById('pe-sens-result');
+    const diffDiv = document.getElementById('pe-sens-diff');
+    if (resultDiv) {
+        resultDiv.querySelector('div').textContent = `$${pricePerShare.toFixed(2)}`;
+    }
+
+    const axiomPrice = (base.net_income * base.pe_multiple) / base.shares;
+    const diff = ((pricePerShare - axiomPrice) / axiomPrice) * 100;
+    if (diffDiv) {
+        diffDiv.textContent = `vs AXIOM: ${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%`;
+        diffDiv.style.color = diff >= 0 ? '#22c55e' : '#ef4444';
+    }
+}
+
+function resetPESensitivity() {
+    if (!peBaseInputs) return;
+    const base = peBaseInputs;
+
+    const slider = document.getElementById('pe-sens-multiple');
+    const input = document.getElementById('pe-sens-multiple-input');
+    if (slider) slider.value = base.pe_multiple;
+    if (input) input.value = base.pe_multiple.toFixed(1);
+
+    recalculatePE();
+}
+
+function savePEValuation() {
+    if (!peBaseInputs || !currentCompanyId) return;
+
+    const base = peBaseInputs;
+    const multiple = parseFloat(document.getElementById('pe-sens-multiple-input')?.value || base.pe_multiple);
+
+    const impliedMarketCap = base.net_income * multiple;
+    const pricePerShare = impliedMarketCap / base.shares;
+
+    const userValuations = JSON.parse(localStorage.getItem('userPEValuations') || '{}');
+    userValuations[currentCompanyId] = {
+        impliedMarketCap,
+        pricePerShare,
+        peMultiple: multiple,
+        savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('userPEValuations', JSON.stringify(userValuations));
+
+    const btn = event.target.closest('button');
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '✓ Saved!';
+    btn.style.background = '#16a34a';
+
+    const removeBtn = document.getElementById('pe-remove-valuation-btn');
+    const indicator = document.getElementById('pe-user-valuation-indicator');
+    if (removeBtn) removeBtn.style.display = 'block';
+    if (indicator) {
+        indicator.style.display = 'block';
+        indicator.innerHTML = `Your custom valuation: <strong>$${pricePerShare.toFixed(2)}</strong>/share <span style="margin-left: 8px; color: var(--text-muted);">Saved ${new Date().toLocaleDateString()}</span>`;
+    }
+
+    setTimeout(() => {
+        btn.innerHTML = 'Update Your Valuation';
+        btn.style.background = 'linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%)';
+    }, 1500);
+
+    if (typeof loadCompanies === 'function') loadCompanies();
+}
+
+function getUserPEValuation(companyId) {
+    const userValuations = JSON.parse(localStorage.getItem('userPEValuations') || '{}');
+    return userValuations[companyId] || null;
+}
+
+function removePEValuation() {
+    if (!currentCompanyId) return;
+
+    const userValuations = JSON.parse(localStorage.getItem('userPEValuations') || '{}');
+    delete userValuations[currentCompanyId];
+    localStorage.setItem('userPEValuations', JSON.stringify(userValuations));
+
+    resetPESensitivity();
+
+    const removeBtn = document.getElementById('pe-remove-valuation-btn');
+    const indicator = document.getElementById('pe-user-valuation-indicator');
+    const saveBtn = document.getElementById('pe-save-valuation-btn');
+
+    if (removeBtn) removeBtn.style.display = 'none';
+    if (indicator) indicator.style.display = 'none';
+    if (saveBtn) saveBtn.innerHTML = 'Save Your Valuation';
+
+    if (typeof loadCompanies === 'function') loadCompanies();
+}
+
 
 // ============================================
 // CHART RENDERING - ENHANCED
