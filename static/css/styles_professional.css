@@ -36,6 +36,10 @@
     --brand-primary: #111111;
     --brand-secondary: #444444;
     --brand-accent: #666666;
+
+    /* Accent Colors */
+    --accent-primary: #3b82f6;
+    --accent-secondary: #2563eb;
     
     /* Semantic Colors */
     --buy-strong: #059669;
@@ -81,6 +85,9 @@
 
     --brand-primary: #ffffff;
     --brand-secondary: #aaaaaa;
+
+    --accent-primary: #60a5fa;
+    --accent-secondary: #3b82f6;
 
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -1px rgba(0, 0, 0, 0.5);
@@ -2156,4 +2163,170 @@ body[data-mode="professional"] .student-only { display: none !important; }
 .valuation-header.rec-sell .recommendation,
 .valuation-header.rec-sell .upside {
     color: var(--negative);
+}
+
+/* ============================================
+   DCF DETAILS EXPANSION
+   ============================================ */
+
+.method-card {
+    transition: all 0.2s ease;
+}
+
+.method-card:hover {
+    background: var(--bg-secondary) !important;
+    transform: translateY(-1px);
+}
+
+.method-card-dcf {
+    position: relative;
+}
+
+.method-card-dcf::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 2px;
+    background: var(--accent-primary);
+    transition: width 0.2s ease;
+}
+
+.method-card-dcf:hover::after {
+    width: 80%;
+}
+
+/* Source links in DCF details */
+#dcf-details-section a:hover {
+    text-decoration: underline;
+}
+
+/* DCF details table */
+#dcf-details-section table th,
+#dcf-details-section table td {
+    white-space: nowrap;
+}
+
+/* Smooth expand animation */
+#dcf-details-section {
+    animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 2000px;
+    }
+}
+
+/* ============================================
+   DCF DETAILS MODAL
+   ============================================ */
+
+#dcf-details-modal {
+    z-index: 3000 !important;
+    background: rgba(0, 0, 0, 0.9) !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+#dcf-details-modal.active,
+#dcf-details-modal[style*="display: flex"] {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+#dcf-details-modal .modal-content {
+    max-width: 950px;
+    width: 95%;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+#dcf-details-modal .modal-header {
+    border-bottom: none;
+}
+
+#dcf-details-modal .modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+#dcf-details-modal .modal-body {
+    padding: 0;
+}
+
+/* Source verification links */
+#dcf-modal-body a {
+    color: var(--accent-primary);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+#dcf-modal-body a:hover {
+    text-decoration: underline;
+    color: var(--accent-secondary);
+}
+
+/* ── Purple sensitivity sliders (modals + detail pages) ── */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(124, 58, 237, 0.25);
+}
+[data-theme="dark"] input[type="range"]::-webkit-slider-runnable-track {
+    background: rgba(124, 58, 237, 0.42);
+}
+input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(124, 58, 237, 0.25);
+}
+[data-theme="dark"] input[type="range"]::-moz-range-track {
+    background: rgba(124, 58, 237, 0.42);
+}
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #7c3aed;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+    background: #6d28d9;
+    transform: scale(1.15);
+}
+input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #7c3aed;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
 }

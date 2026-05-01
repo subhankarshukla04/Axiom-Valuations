@@ -475,6 +475,18 @@ def index():
 def preview():
     return render_template('preview.html')
 
+@app.route('/dcf/<int:company_id>')
+def dcf_detail_page(company_id):
+    return render_template('dcf_detail.html', company_id=company_id)
+
+@app.route('/ev-ebitda/<int:company_id>')
+def ev_ebitda_detail_page(company_id):
+    return render_template('ev_ebitda_detail.html', company_id=company_id)
+
+@app.route('/pe/<int:company_id>')
+def pe_detail_page(company_id):
+    return render_template('pe_detail.html', company_id=company_id)
+
 @app.route('/api/companies', methods=['GET'])
 def get_companies():
     conn = get_db_connection()
@@ -920,19 +932,80 @@ def preview_valuation():
 def run_valuation(company_id):
     try:
         logger.info(f"Manual valuation requested for company ID {company_id}")
-        
+
         # Use centralized service
         success, results, error_msg = valuation_service.valuate_company(company_id)
-        
+
         if success:
             logger.info(f"Valuation completed successfully for company ID {company_id}")
             return jsonify(results)
         else:
             logger.error(f"Valuation failed for company ID {company_id}: {error_msg}")
             return jsonify({'error': error_msg}), 404 if 'not found' in error_msg else 500
-            
+
     except Exception as e:
         logger.error(f"Unexpected error during valuation for company ID {company_id}: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/valuation/<int:company_id>/details', methods=['GET'])
+def get_valuation_details(company_id):
+    """
+    Get detailed valuation breakdown for a company.
+
+    Returns full calculation details including:
+    - DCF: WACC breakdown, 10-year FCF projections, terminal value
+    - EV/EBITDA: multiple used, EBITDA, implied EV/equity
+    - P/E: multiple used, net income, implied value
+    - Blend weights used for final valuation
+
+    This endpoint computes on-demand rather than fetching cached results,
+    ensuring the breakdown always reflects current assumptions.
+    """
+    try:
+        logger.info(f"Valuation details requested for company ID {company_id}")
+
+        # Fetch company data
+        company_data = valuation_service.fetch_company_data(company_id)
+        if not company_data:
+            return jsonify({'error': f'Company with ID {company_id} not found'}), 404
+
+        # Run valuation to get full details (don't save to DB)
+        results = valuation_service.run_valuation(company_data)
+        if not results:
+            return jsonify({'error': 'Valuation calculation failed'}), 500
+
+        # Return structured response with details
+        return jsonify({
+            'company_id': company_id,
+            'company_name': results.get('name'),
+            'ticker': company_data.get('ticker'),
+            'sector': results.get('sector'),
+            'summary': {
+                'fair_value': results.get('final_price_per_share'),
+                'current_price': results.get('current_price'),
+                'upside_pct': results.get('upside_pct'),
+                'recommendation': results.get('recommendation'),
+            },
+            'dcf_details': results.get('dcf_details'),
+            'ev_ebitda_details': results.get('ev_ebitda_details'),
+            'pe_details': results.get('pe_details'),
+            'blend_weights': results.get('blend_weights'),
+            'risk_metrics': {
+                'wacc': results.get('wacc'),
+                'z_score': results.get('z_score'),
+                'debt_to_equity': results.get('debt_to_equity'),
+            },
+            'ml_calibration': {
+                'sub_sector_tag': results.get('sub_sector_tag'),
+                'company_type': results.get('company_type'),
+                'ebitda_method': results.get('ebitda_method'),
+                'analyst_target': results.get('analyst_target'),
+            },
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting valuation details for company ID {company_id}: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/export/csv', methods=['GET'])
