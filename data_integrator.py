@@ -309,7 +309,7 @@ class DataIntegrator:
 
         Y2 / Y3 converge toward terminal (not arbitrary %-decay).
         """
-        TERMINAL_DEFAULT = 0.025  # ml_engine.calibrate() overrides per sector tag
+        TERMINAL_DEFAULT = 0.025  # valuation.calibrate() overrides per sector tag
 
         # ── Source 1 & 2: forward revenue estimate from analyst consensus ──────
         fwd_1y = None   # next fiscal year
