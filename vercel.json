@@ -15,6 +15,11 @@
       "dest": "/api/index.py"
     }
   ],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60
+    }
+  },
   "env": {
     "DATABASE_TYPE": "sqlite",
     "FLASK_ENV": "production"
