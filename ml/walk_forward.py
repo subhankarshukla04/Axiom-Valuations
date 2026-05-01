@@ -47,7 +47,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ml._config import CYCLICAL_TAGS, SECULAR_DECLINE_TAGS, SUBSECTOR_MULT, TICKER_TAG_MAP
+from valuation._config import CYCLICAL_TAGS, SECULAR_DECLINE_TAGS, SUBSECTOR_MULT, TICKER_TAG_MAP
 from ml.calibrator import (
     ML_MODEL_PATH,
     _method_to_int,
