@@ -65,25 +65,10 @@ batch*.json
 exports/*.pdf
 exports/*.xlsx
 
-# Modules not yet connected to frontend
-axiom_api_endpoints.py
-phase1_api_endpoints.py
-advanced_api_endpoints.py
+# Generated / infra only
 intelligence/
 services/
-exports/
-data_layer/
 scripts/
 tests/
 migrations/
 mcp_server.py
-lbo_engine.py
-football_field.py
-peer_discovery.py
-portfolio_engine.py
-scenario_service.py
-scenario_generator.py
-macro_service.py
-audit_service.py
-institutional_valuation_engine.py
-sensitivity.py

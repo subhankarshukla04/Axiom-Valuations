@@ -57,7 +57,7 @@ The "sector growth" element is used in the PEG-style adjustment in
 | `valuation/peer_comps.py` | 40 | `MAX_PEERS = 10` | Cap on peer-set size | (kept; product knob) |
 | `valuation/peer_comps.py` | 113 | `MIN_PEERS_FOR_LIVE = 2` | Below this, fall back to JSON prior | **P5** (calibrate from backtest) |
 | `valuation/peer_comps.py` | 44–46 | EV/PE/PB sanity ranges (e.g. EV/EBITDA in (0.5, 200)) | Reject yfinance outliers | (kept; sanity bounds) |
-| `valuation/anchoring.py` | 3–11 | Analyst-anchor weights per company type (STORY 0.70, GROWTH_TECH 0.15, etc.) | How much weight analyst consensus gets vs model | **P3** (audit says: drop, don't blend two valuation paths) |
+| `valuation/anchoring.py` | 3–11 | Analyst-anchor weights per company type (STORY 0.70, GROWTH_TECH 0.15, etc.) | How much weight analyst consensus gets vs model | **P3 ✅ disabled by default** (set `AXIOM_USE_ANALYST_ANCHOR=1` to restore) |
 | `valuation/anchoring.py` | 19 | Sanity ceiling `analyst_target * 4.0` | Caps absurd model overshoots | **P3** (replace with quantile band from backtest) |
 | `valuation/anchoring.py` | 22–23 | Sanity floor `analyst_target * 0.25` then snap to `* 0.70` | Caps absurd model undershoots | **P3** |
 | `valuation/anchoring.py` | 27–28 | Current-price ceiling `* 10.0`, snap `* 1.10` | Last-ditch unrealism guard | **P3** |
@@ -72,7 +72,9 @@ The "sector growth" element is used in the PEG-style adjustment in
 | `valuation/pipeline.py` | 60–62 | Airline growth caps: y1 ≤ 6%, y2 5%, y3 4% | Caps airline projection optimism | **P2** |
 | `valuation/pipeline.py` | 67–68 | Non-USD-reporting force `_forced_anchor_weight = 0.85` | 85% analyst weight for non-USD reporters | **P3** |
 | `valuation/pipeline.py` | 73–75 | Telecom/utility WACC penalty `+0.015` | Leverage penalty for two tags | **P2** |
-| `valuation/pipeline.py` | 83–84 | Y2/Y3 convergence weights `(0.67, 0.33)` and `(0.33, 0.67)` toward terminal | Growth-decay schedule | **P4** (scenario-generate) |
+| `valuation/pipeline.py` | 83–84 | Y2/Y3 convergence weights `(0.67, 0.33)` and `(0.33, 0.67)` toward terminal | Growth-decay schedule | **P4 ✅ also used by `valuation/scenarios._derive_y2_y3` when perturbing Y1 in bear/bull** |
+| `config.py` | 70–71 | `BEAR_MULTIPLIER=0.75`, `BULL_MULTIPLIER=1.25` | Old cosmetic blanket scenario triple | **P4 ✅** replaced by driver-based perturbations in `valuation/scenarios.compute_scenarios`; constants still load but no longer drive output (Monte-Carlo helper is the last caller). |
+| `valuation/scenarios.py` | 22–25 | `WACC_DELTA=0.01`, `TERMINAL_GROWTH_DELTA=0.01`, `GROWTH_Y1_FACTOR_BEAR=0.75`, `..._BULL=1.25` | Phase 4 perturbation deltas | **P5** (calibrate from realized 12m volatility per sector) |
 | `valuation/alt_models.py` | 9 | Default bank P/B fallback `1.6` | When sector + ticker P/B both missing | **P2** |
 | `valuation/alt_models.py` | 19 | Default REIT P/FFO fallback `20.0` | When sector + ticker P/FFO both missing | **P2** |
 | `valuation/alt_models.py` | 26 | Growth-loss model: `analyst_target * 0.85` | 15% haircut on analyst target | **P3** |
@@ -87,8 +89,8 @@ The "sector growth" element is used in the PEG-style adjustment in
 
 | File | Line | Value | What it gates | Phase |
 |---|---|---|---|---|
-| `ml/calibrator.py` | 132–134 | Label clip `max(0.2, min(actual/predicted, 5.0))` | Censors large mispricings — exactly the signal the model exists to find | **P3** (replace with `log(actual/predicted)`, no clip) |
-| `ml/calibrator.py` | 137 | 80/20 chronological split | Single holdout, no k-fold or bootstrap | **P3** (TimeSeriesSplit + grid search) |
+| `ml/calibrator.py` | (was 132–134) | Label clip `[0.2, 5.0]` on `actual/predicted` | (retired) | **P3 ✅** label is now `log(actual/predicted)` with no clip; inference clamp narrowed to ±ln(3) on the multiplier |
+| `ml/calibrator.py` | (was 137) | 80/20 single chronological split | (retired) | **P3 ✅** `TimeSeriesSplit(n_splits≤5)` + 27-cell grid over (max_depth, n_estimators, learning_rate); selects best by CV log-MAE |
 | `ml/calibrator.py` | 14 | `MIN_TRAINING_SAMPLES = 15` | Threshold to bother training | **P3** |
 | `ml/calibrator.py` | 23–35 | `_TAG_VOL_DEFAULT` per-sector vol priors (0.55 for biotech, 0.12 for utility, etc.) | Volatility prior for inference | **P4** (used in uncertainty bands) |
 | `ml/walk_forward.py` | 235–238 | VIX > 22 → +1 regime score | Regime detection signal 1 | **P5** (HMM / change-point) |

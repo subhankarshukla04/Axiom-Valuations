@@ -222,6 +222,24 @@ def enhanced_dcf_valuation(company_data):
 				'z_score': 2.5,
 				'mc_p10': final_price * shares * 0.75,
 				'mc_p90': final_price * shares * 1.25,
+				# Phase 4 — alt-model scenarios: WACC/terminal-growth/growth-Y1
+				# perturbations don't apply to P/B (banks) or P/FFO (REITs)
+				# models. Express the range as a ±15% multiple-rerating band as
+				# a placeholder; future work should perturb the actual P/B and
+				# P/FFO multiples instead of using a fixed haircut.
+				'scenarios': {
+					'bear': {'blended_price_per_share': final_price * 0.85,
+					          'blended_equity_value':   final_price * shares * 0.85,
+					          'note': '-15% multiple rerating'},
+					'base': {'blended_price_per_share': final_price,
+					          'blended_equity_value':   final_price * shares,
+					          'note': 'alternative model'},
+					'bull': {'blended_price_per_share': final_price * 1.15,
+					          'blended_equity_value':   final_price * shares * 1.15,
+					          'note': '+15% multiple rerating'},
+					'spread_pct': 30.0,
+					'perturbation_axes': {'multiple_rerating_pct': [-15.0, 15.0]},
+				},
 				'sub_sector_tag': tag,
 				'company_type': company_data.get('company_type'),
 				'ebitda_method': company_data.get('ebitda_method'),
@@ -299,11 +317,17 @@ def enhanced_dcf_valuation(company_data):
 	else:
 		profit_margin = float(company_data['profit_margin'])
 
+	# CapEx taper: years 1-2 use raw current capex, years 3-10 lerp to normalized.
+	# Captures the reality that high-investment phases unwind toward sector steady-state.
+	# raw_capex_pct is preserved by valuation.calibrate before it overwrites capex_pct.
+	raw_capex_pct = float(company_data.get('raw_capex_pct', company_data['capex_pct']))
 	if 'normalized_capex_pct' in company_data:
-		capex_pct = float(company_data['normalized_capex_pct'])
-		print(f"  Using NORMALIZED CapEx: {capex_pct*100:.1f}% (original: {float(company_data['capex_pct'])*100:.1f}%)")
+		normalized_capex_pct = float(company_data['normalized_capex_pct'])
 	else:
-		capex_pct = float(company_data['capex_pct'])
+		normalized_capex_pct = float(company_data['capex_pct'])
+	if abs(raw_capex_pct - normalized_capex_pct) > 1e-6:
+		print(f"  CapEx taper: {raw_capex_pct*100:.1f}% (Y1-2) → {normalized_capex_pct*100:.1f}% (Y10 normalized)")
+	capex_pct = raw_capex_pct  # Y1 reference for downstream consumers (assumptions block)
 
 	depreciation = float(company_data['depreciation'])
 	wc_change = float(company_data['working_capital_change'])
@@ -383,11 +407,18 @@ def enhanced_dcf_valuation(company_data):
 		growth_rate = growth_schedule[year-1]
 		current_revenue *= (1 + growth_rate)
 
+		# CapEx taper: Y1-2 raw, Y3-10 linearly interpolate to normalized
+		if year <= 2:
+			year_capex_pct = raw_capex_pct
+		else:
+			t = (year - 2) / 8  # 0.125 at Y3 → 1.0 at Y10
+			year_capex_pct = raw_capex_pct + (normalized_capex_pct - raw_capex_pct) * t
+
 		year_ebitda = current_revenue * (ebitda / revenue)
 		year_da = current_revenue * (depreciation / revenue)
 		year_ebit = year_ebitda - year_da
 		year_nopat = year_ebit * (1 - tax_rate)
-		year_capex = current_revenue * capex_pct
+		year_capex = current_revenue * year_capex_pct
 		year_wc = wc_change * (current_revenue / base_revenue)  # WC scales with revenue
 		year_fcf = year_nopat + year_da - year_capex - year_wc
 
@@ -628,12 +659,24 @@ def enhanced_dcf_valuation(company_data):
 	print(f"  RECOMMENDATION:                     {recommendation}")
 	print(f"  Target Price (12-month):            ${target_price:,.2f}")
 	print(f"  ")
-	bear = Config.BEAR_MULTIPLIER
-	bull = Config.BULL_MULTIPLIER
-	print(f"  Valuation Range:")
-	print(f"    Bear Case ({(1-bear)*100:.0f}% haircut):         ${final_equity_value * bear:,.0f}  (${final_price_per_share * bear:.2f}/share)")
-	print(f"    Base Case:                        ${final_equity_value:,.0f}  (${final_price_per_share:.2f}/share)")
-	print(f"    Bull Case ({(bull-1)*100:.0f}% premium):          ${final_equity_value * bull:,.0f}  (${final_price_per_share * bull:.2f}/share)")
+	# Phase 4 — real bear/base/bull driven by perturbations of the actual
+	# valuation inputs (WACC ±100bp, terminal growth ±100bp, growth Y1 ±25%),
+	# not a cosmetic 0.75×/1.25× blanket multiplier.
+	from valuation.scenarios import compute_scenarios
+	scenarios = compute_scenarios(
+		revenue=revenue, ebitda=ebitda, depreciation=depreciation,
+		raw_capex_pct=raw_capex_pct, normalized_capex_pct=normalized_capex_pct,
+		wc_change=wc_change, tax_rate=tax_rate,
+		shares=shares, debt=debt, cash=cash,
+		wacc=wacc, terminal_growth=terminal_growth, growth_y1=growth_y1,
+		comp_ev_equity=comp_equity_ev, comp_pe_equity=comp_pe_method,
+		weight_dcf=weight_dcf, weight_ev=weight_ev_ebitda, weight_pe=weight_pe,
+	)
+	print(f"  Valuation Range (driver-based perturbations):")
+	for nm in ('bear', 'base', 'bull'):
+		s = scenarios[nm]
+		print(f"    {nm.capitalize():4s}  WACC={s['wacc']*100:.2f}%  TG={s['terminal_growth']*100:.2f}%  gY1={s['growth_y1']*100:.2f}%  →  ${s['blended_equity_value']:,.0f} (${s['blended_price_per_share']:.2f}/share)")
+	print(f"    Spread (bull−bear)/base = {scenarios['spread_pct']:.1f}%")
 	
 	print(f"{'=' * 80}\n")
 	
@@ -675,6 +718,7 @@ def enhanced_dcf_valuation(company_data):
 		'ebitda_method': company_data.get('ebitda_method'),
 		'analyst_target': company_data.get('analyst_target'),
 		'mc_p90': mc_results['p90'],
+		'scenarios': scenarios,   # Phase 4: driver-based bear/base/bull triple
 		'dcf_details': {
 			'ticker': company_data.get('ticker', ''),
 			'inputs': {

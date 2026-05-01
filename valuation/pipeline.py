@@ -29,6 +29,7 @@ def calibrate(company_data: dict) -> dict:
     company_data['ebitda_method'] = ebitda_method
 
     raw_capex = float(company_data.get('capex_pct', 0.05) or 0.05)
+    company_data['raw_capex_pct'] = raw_capex
     company_data['capex_pct'] = normalize_capex(raw_capex, tag)
 
     ev_m, pe_m = get_multiples(tag, g1, ticker=ticker)
