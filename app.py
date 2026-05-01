@@ -37,7 +37,7 @@ logger = setup_app_logger(app, log_level=config.LOG_LEVEL)
 init_auth(app)
 
 # Initialize services
-valuation_service = ValuationService()
+valuation_service = ValuationService(db_path=Config.SQLITE_DB)
 data_integrator = DataIntegrator()
 
 # Register Phase 1 API routes (scenarios, macros, audit trail)
@@ -246,6 +246,27 @@ def init_db():
             c.execute(f'ALTER TABLE valuation_results ADD COLUMN {col} {coltype}')
         except Exception:
             pass
+
+    # Macro assumptions table (used by macro_service)
+    c.execute('''CREATE TABLE IF NOT EXISTS macro_assumptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        assumptions TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # Scenarios table (used by scenario_service)
+    c.execute('''CREATE TABLE IF NOT EXISTS scenarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER,
+        name TEXT,
+        scenario_type TEXT,
+        assumptions TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies (id)
+    )''')
 
     conn.commit()
     conn.close()
@@ -1219,11 +1240,11 @@ def dashboard_stats():
         'buy_count': stats.get('buy_count', 0) if isinstance(stats, dict) else 0,
         'hold_count': stats.get('hold_count', 0) if isinstance(stats, dict) else 0,
         'sell_count': stats.get('sell_count', 0) if isinstance(stats, dict) else 0,
-        'avg_pe': round(stats.get('avg_pe', 0) if isinstance(stats, dict) else 0, 1),
-        'avg_roe': round(stats.get('avg_roe', 0) if isinstance(stats, dict) else 0, 1),
-        'total_fair_value': stats.get('total_fair_value', 0) if isinstance(stats, dict) else 0,
-        'total_market_cap': stats.get('total_market_cap', 0) if isinstance(stats, dict) else 0,
-        'avg_wacc': round(stats.get('avg_wacc', 0) if isinstance(stats, dict) else 0, 2),
+        'avg_pe': round(stats.get('avg_pe') or 0 if isinstance(stats, dict) else 0, 1),
+        'avg_roe': round(stats.get('avg_roe') or 0 if isinstance(stats, dict) else 0, 1),
+        'total_fair_value': stats.get('total_fair_value') or 0 if isinstance(stats, dict) else 0,
+        'total_market_cap': stats.get('total_market_cap') or 0 if isinstance(stats, dict) else 0,
+        'avg_wacc': round(stats.get('avg_wacc') or 0 if isinstance(stats, dict) else 0, 2),
         'sectors': []
     }
 
