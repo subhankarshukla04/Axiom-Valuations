@@ -443,6 +443,12 @@ def import_and_value():
         return jsonify({'success': False, 'error': str(e), 'traceback': tb}), 500
 
 
+@app.route('/api/health', methods=['GET'])
+def health():
+    """Instant health check — no external calls."""
+    return jsonify({'status': 'ok', 'db': Config.SQLITE_DB, 'routes': len(list(app.url_map.iter_rules()))})
+
+
 @app.route('/api/debug/<ticker>', methods=['GET'])
 def debug_import(ticker):
     """Diagnostic endpoint — hit /api/debug/AAPL to see exactly what fails."""
