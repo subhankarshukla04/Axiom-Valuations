@@ -9,8 +9,9 @@ import os
 from datetime import datetime
 from typing import Optional
 
-# Create logs directory if it doesn't exist
-os.makedirs('logs', exist_ok=True)
+# On Vercel the repo root is read-only; /tmp is the only writable path
+_LOG_DIR = '/tmp/logs' if os.environ.get('VERCEL') else 'logs'
+os.makedirs(_LOG_DIR, exist_ok=True)
 
 
 class ColoredFormatter(logging.Formatter):
@@ -103,7 +104,7 @@ def setup_app_logger(app, log_level: str = 'INFO') -> logging.Logger:
     app_logger = setup_logger(
         'valuation_app',
         level=level,
-        log_file='logs/app.log',
+        log_file=f'{_LOG_DIR}/app.log',
         console=True
     )
 
@@ -111,7 +112,7 @@ def setup_app_logger(app, log_level: str = 'INFO') -> logging.Logger:
     db_logger = setup_logger(
         'valuation_app.database',
         level=level,
-        log_file='logs/database.log',
+        log_file=f'{_LOG_DIR}/database.log',
         console=False
     )
 
@@ -119,7 +120,7 @@ def setup_app_logger(app, log_level: str = 'INFO') -> logging.Logger:
     api_logger = setup_logger(
         'valuation_app.api',
         level=level,
-        log_file='logs/api.log',
+        log_file=f'{_LOG_DIR}/api.log',
         console=False
     )
 
@@ -127,7 +128,7 @@ def setup_app_logger(app, log_level: str = 'INFO') -> logging.Logger:
     valuation_logger = setup_logger(
         'valuation_app.valuation',
         level=level,
-        log_file='logs/valuation.log',
+        log_file=f'{_LOG_DIR}/valuation.log',
         console=False
     )
 
@@ -135,7 +136,7 @@ def setup_app_logger(app, log_level: str = 'INFO') -> logging.Logger:
     security_logger = setup_logger(
         'valuation_app.security',
         level=logging.INFO,
-        log_file='logs/security.log',
+        log_file=f'{_LOG_DIR}/security.log',
         console=False
     )
 
@@ -148,7 +149,7 @@ def setup_app_logger(app, log_level: str = 'INFO') -> logging.Logger:
     app_logger.info("=" * 60)
     app_logger.info("Application logging initialized")
     app_logger.info(f"Log level: {log_level}")
-    app_logger.info(f"Log directory: logs/")
+    app_logger.info(f"Log directory: {_LOG_DIR}/")
     app_logger.info("=" * 60)
 
     return app_logger
