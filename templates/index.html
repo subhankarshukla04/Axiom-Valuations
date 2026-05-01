@@ -859,7 +859,55 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=8"></script>
+    <!-- DCF Details Modal (opens on top of valuation modal) -->
+    <div id="dcf-details-modal" class="modal" style="z-index: 3000 !important;">
+        <div class="modal-content" style="width: 95vw; max-width: 1400px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white;">
+                <div>
+                    <h2 id="dcf-modal-title" style="color: white; margin: 0;">DCF Valuation Breakdown</h2>
+                    <p id="dcf-modal-subtitle" style="color: rgba(255,255,255,0.8); margin: 4px 0 0; font-size: 0.85rem;">Discounted Cash Flow Analysis</p>
+                </div>
+                <span class="close" onclick="closeDCFModal()" style="color: white;">&times;</span>
+            </div>
+            <div class="modal-body" id="dcf-modal-body" style="padding: 0; max-height: calc(90vh - 80px); overflow-y: auto; padding-bottom: 20px;">
+                <div style="padding: 40px; text-align: center; color: var(--text-muted);">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- EV/EBITDA Details Modal -->
+    <div id="ev-ebitda-details-modal" class="modal" style="z-index: 3000 !important;">
+        <div class="modal-content" style="width: 95vw; max-width: 1200px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white;">
+                <div>
+                    <h2 id="ev-ebitda-modal-title" style="color: white; margin: 0;">EV/EBITDA Valuation</h2>
+                    <p id="ev-ebitda-modal-subtitle" style="color: rgba(255,255,255,0.8); margin: 4px 0 0; font-size: 0.85rem;">Comparable Company Analysis</p>
+                </div>
+                <span class="close" onclick="closeEVEBITDAModal()" style="color: white;">&times;</span>
+            </div>
+            <div class="modal-body" id="ev-ebitda-modal-body" style="padding: 0; max-height: calc(90vh - 80px); overflow-y: auto; padding-bottom: 20px;">
+                <div style="padding: 40px; text-align: center; color: var(--text-muted);">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- P/E Details Modal -->
+    <div id="pe-details-modal" class="modal" style="z-index: 3000 !important;">
+        <div class="modal-content" style="width: 95vw; max-width: 1200px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white;">
+                <div>
+                    <h2 id="pe-modal-title" style="color: white; margin: 0;">P/E Valuation</h2>
+                    <p id="pe-modal-subtitle" style="color: rgba(255,255,255,0.8); margin: 4px 0 0; font-size: 0.85rem;">Price-to-Earnings Analysis</p>
+                </div>
+                <span class="close" onclick="closePEModal()" style="color: white;">&times;</span>
+            </div>
+            <div class="modal-body" id="pe-modal-body" style="padding: 0; max-height: calc(90vh - 80px); overflow-y: auto; padding-bottom: 20px;">
+                <div style="padding: 40px; text-align: center; color: var(--text-muted);">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=36"></script>
     <script src="{{ url_for('static', filename='js/ticker_add.js') }}?v=1"></script>
     <script src="{{ url_for('static', filename='js/macro_controls.js') }}?v=1"></script>
     <script src="{{ url_for('static', filename='js/axiom_ui.js') }}?v=1"></script>
