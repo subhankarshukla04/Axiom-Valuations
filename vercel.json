@@ -22,6 +22,6 @@
   },
   "env": {
     "DATABASE_TYPE": "sqlite",
-    "FLASK_ENV": "production"
+    "FLASK_ENV": "development"
   }
 }
