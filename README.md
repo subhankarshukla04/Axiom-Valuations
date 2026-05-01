@@ -20,7 +20,7 @@ prior prediction errors. Add any US stock ticker, get a fair-value estimate.
 
 1. **Add a ticker** — Enter AAPL, MSFT, NVDA, whatever. The app pulls financials from Yahoo Finance automatically.
 2. **Run valuation** — One click runs a 10-year DCF model with comparable company analysis.
-3. **See the result** — Fair-value-per-share point estimate, upside/downside to current price, investment signal. (Phase 4 will replace the point estimate with a bear/base/bull range.)
+3. **See the result** — Fair-value-per-share with a **bear / base / bull range** (Phase 4: WACC ±100bp, terminal growth ±100bp, growth-Y1 ±25%), upside/downside to current price, and an investment signal.
 
 That's it. No account required, no API keys for basic use. Just valuations.
 
