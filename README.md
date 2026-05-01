@@ -1,16 +1,41 @@
 # Axiom
 
-A DCF valuation engine with an ML calibration layer. Add any US stock ticker, get a fair value estimate.
+A fundamental research tool that combines multiples-based valuation, DCF, and
+analyst consensus, with a small machine-learning correction layer trained on
+prior prediction errors. Add any US stock ticker, get a fair-value estimate.
 
----
+> **What this is — and isn't.**
+> Axiom is a research aid, not a quantitative alpha system. The "fair value"
+> output combines (a) hand-curated sub-sector multiples and blend weights
+> stored in `valuation/config/*.json`, (b) a DCF engine with synthetic credit
+> spreads, and (c) a small GBM correction (`ml/calibrator.py`) trained on
+> ~1,650 prior predictions. Most of the output's variance comes from the
+> hand-curated tables, not the ML layer. Outputs should be treated as one
+> input to investment decisions, not a forecast.
+>
+> See `HARDCODED_VALUES.md` for the complete inventory of magic numbers and
+> the phased plan to replace them with live peer-comp estimates.
 
 ## What It Does
 
 1. **Add a ticker** — Enter AAPL, MSFT, NVDA, whatever. The app pulls financials from Yahoo Finance automatically.
 2. **Run valuation** — One click runs a 10-year DCF model with comparable company analysis.
-3. **See the result** — Fair value per share, upside/downside to current price, investment signal.
+3. **See the result** — Fair-value-per-share point estimate, upside/downside to current price, investment signal. (Phase 4 will replace the point estimate with a bear/base/bull range.)
 
 That's it. No account required, no API keys for basic use. Just valuations.
+
+## Codebase layout (Phase 1)
+
+- `valuation/` — heuristic / multiples-based layer. Sub-sector tagging,
+  comparable multiples, blend weights, analyst anchoring, sector-specific
+  valuation models (banks → P/B, REITs → P/FFO, utilities → DDM, SaaS → R40).
+  **Every numeric assumption here is hand-picked**; see `HARDCODED_VALUES.md`.
+- `ml/` — actually-learned-from-data layer. The GBM correction model
+  (`calibrator.py`), the walk-forward trainer (`walk_forward.py`), the
+  prediction logger (`log.py`), the historical regression backtest
+  (`backtest.py`), and the live monitor.
+- `valuation_engine.py` — single import surface re-exporting both layers.
+- `HARDCODED_VALUES.md` — the inventory.
 
 ---
 

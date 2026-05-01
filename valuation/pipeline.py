@@ -1,6 +1,7 @@
-from ml._config import TERMINAL_GROWTH_BY_TAG, TERMINAL_GROWTH_DEFAULT
-from ml.tagging import get_sub_sector_tag, classify_company
-from ml.normalizers import smart_ebitda, normalize_capex, get_multiples, get_blend_weights
+from valuation._config import TERMINAL_GROWTH_BY_TAG, TERMINAL_GROWTH_DEFAULT
+from valuation.tagging import get_sub_sector_tag, classify_company
+from valuation.normalizers import smart_ebitda, normalize_capex, get_multiples, get_blend_weights
+# TODO Phase 2: extract _get_analyst_target into valuation/ — heuristic should not depend on ml/
 from ml.log import _get_analyst_target
 
 
@@ -30,7 +31,7 @@ def calibrate(company_data: dict) -> dict:
     raw_capex = float(company_data.get('capex_pct', 0.05) or 0.05)
     company_data['capex_pct'] = normalize_capex(raw_capex, tag)
 
-    ev_m, pe_m = get_multiples(tag, g1)
+    ev_m, pe_m = get_multiples(tag, g1, ticker=ticker)
     if ev_m is not None:
         company_data['comparable_ev_ebitda'] = ev_m
     if pe_m is not None:

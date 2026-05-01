@@ -47,6 +47,12 @@ build/
 htmlcov/
 .tox/
 
+# ML models — *.pkl ignored by default; exception for small production models
+*.pkl
+!ml_calibration_model.pkl
+!ml_model_y1.pkl
+!ml_model_y1y2.pkl
+
 # Data files (generated at runtime)
 *.jsonl
 predictions_db.json

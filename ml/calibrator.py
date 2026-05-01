@@ -4,7 +4,7 @@ import os
 import pickle
 from datetime import datetime
 
-from ml._config import SUBSECTOR_MULT
+from valuation._config import SUBSECTOR_MULT
 from ml.log import PREDICTION_LOG_PATH
 
 logger = logging.getLogger(__name__)
