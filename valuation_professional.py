@@ -8,7 +8,7 @@ from ib_valuation_framework import (
 	get_industry_benchmark_multiples
 )
 try:
-	import ml_engine as _ml
+	import valuation_engine as _ml
 	_ML_AVAILABLE = True
 except Exception:
 	_ML_AVAILABLE = False
@@ -136,21 +136,6 @@ def altman_z_score(revenue, ebitda, equity_value, debt, working_capital):
 		zone = "Distress Zone"
 	
 	return z_score, zone
-
-def sensitivity_analysis(base_fcf, terminal_growth_range, discount_rate_range):
-	"""Generate sensitivity table for DCF valuation"""
-	sensitivity = {}
-	
-	for tg in terminal_growth_range:
-		for dr in discount_rate_range:
-			if dr <= tg:
-				continue
-			terminal_value = base_fcf * (1 + tg) / (dr - tg)
-			pv_terminal = terminal_value / ((1 + dr) ** 5)
-			key = f"TG_{tg}_DR_{dr}"
-			sensitivity[key] = pv_terminal
-	
-	return sensitivity
 
 def monte_carlo_valuation(base_value, growth_volatility, discount_volatility, iterations=1000):
 	"""Simple Monte Carlo simulation for valuation range"""

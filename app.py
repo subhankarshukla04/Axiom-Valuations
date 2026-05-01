@@ -620,6 +620,88 @@ def update_settings():
         logger.error(f"Error updating settings: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/config/heuristics', methods=['GET'])
+def get_heuristics_inventory():
+    """Phase 1 transparency endpoint: returns every hand-picked constant
+    that drives the valuation output. Read-only — editing arrives in Phase 2.
+
+    See HARDCODED_VALUES.md for the full audit-trail per row.
+    """
+    import os, json
+    cfg_dir = os.path.join(os.path.dirname(__file__), 'valuation', 'config')
+    payload = {'configs': {}, 'magic_numbers': []}
+
+    for fname in sorted(os.listdir(cfg_dir)):
+        if not fname.endswith('.json'):
+            continue
+        with open(os.path.join(cfg_dir, fname)) as fh:
+            payload['configs'][fname] = json.load(fh)
+
+    # Magic numbers embedded in Python — keep this list in sync with HARDCODED_VALUES.md §2 & §3
+    payload['magic_numbers'] = [
+        {'file': 'valuation/normalizers.py', 'line': 45, 'value': '12.0 / 20.0',
+         'gates': 'EV/EBITDA & P/E fallback for unknown sub-sector', 'phase': 'P2'},
+        {'file': 'valuation/normalizers.py', 'line': 53, 'value': '** 0.4',
+         'gates': 'PEG-style growth-vs-sector exponent (no derivation)', 'phase': 'P2'},
+        {'file': 'valuation/normalizers.py', 'line': 54, 'value': 'clip [0.5, 1.5]',
+         'gates': 'Caps multiple stretch — destroys tails', 'phase': 'P2'},
+        {'file': 'valuation/anchoring.py', 'line': '3-11', 'value': 'STORY 0.70 etc.',
+         'gates': 'Analyst anchor weight per company type', 'phase': 'P3'},
+        {'file': 'valuation/anchoring.py', 'line': '19-28', 'value': '4×, 0.25×, 10× bands',
+         'gates': 'Sanity guardrails on final price', 'phase': 'P3'},
+        {'file': 'valuation/tagging.py', 'line': '110-130', 'value': 'g>0.20, margin>0.08, beta>1.8 ...',
+         'gates': 'Hard cliffs into company-type buckets', 'phase': 'P6'},
+        {'file': 'valuation/pipeline.py', 'line': 48, 'value': 'debt × 0.25',
+         'gates': 'Auto OEM captive-finance debt cut', 'phase': 'P2'},
+        {'file': 'valuation/pipeline.py', 'line': 56, 'value': 'debt × 0.35',
+         'gates': 'Airline operating-lease debt cut', 'phase': 'P2'},
+        {'file': 'valuation/pipeline.py', 'line': '67-68', 'value': 'anchor 0.85',
+         'gates': 'Forced 85% analyst anchor for non-USD reporters', 'phase': 'P3'},
+        {'file': 'valuation/pipeline.py', 'line': '73-75', 'value': 'WACC + 0.015',
+         'gates': 'Telecom/utility leverage WACC penalty', 'phase': 'P2'},
+        {'file': 'valuation/pipeline.py', 'line': '83-84', 'value': '(0.67, 0.33) / (0.33, 0.67)',
+         'gates': 'Y2/Y3 growth convergence weights', 'phase': 'P4'},
+        {'file': 'valuation/alt_models.py', 'line': 9, 'value': 'P/B 1.6',
+         'gates': 'Bank P/B fallback when sector + ticker missing', 'phase': 'P2'},
+        {'file': 'valuation/alt_models.py', 'line': 19, 'value': 'P/FFO 20.0',
+         'gates': 'REIT P/FFO fallback', 'phase': 'P2'},
+        {'file': 'valuation/alt_models.py', 'line': 26, 'value': '× 0.85',
+         'gates': 'Growth-loss model haircut on analyst target', 'phase': 'P3'},
+        {'file': 'valuation/alt_models.py', 'line': 52, 'value': 'P/E 16.0, × 0.80',
+         'gates': 'Health-insurance multiple + analyst haircut', 'phase': 'P2'},
+        {'file': 'valuation/alt_models.py', 'line': 63, 'value': '× 0.88',
+         'gates': 'Non-USD analyst haircut', 'phase': 'P3'},
+        {'file': 'valuation/alt_models.py', 'line': 74, 'value': '11/7.5/5/3.5',
+         'gates': 'Rule-of-40 SaaS EV/Revenue tiers', 'phase': 'P2'},
+        {'file': 'valuation/alt_models.py', 'line': '84-87', 'value': 'rf+0.005, NI×0.67',
+         'gates': 'Utility DDM-style payout assumption', 'phase': 'P2'},
+        {'file': 'ml/calibrator.py', 'line': '132-134', 'value': 'clip [0.2, 5.0]',
+         'gates': 'Censors large mispricings — kills the signal the model exists to find', 'phase': 'P3'},
+        {'file': 'ml/calibrator.py', 'line': 137, 'value': '80/20 split',
+         'gates': 'Single chronological holdout, no k-fold or grid search', 'phase': 'P3'},
+        {'file': 'ml/calibrator.py', 'line': '23-35', 'value': '_TAG_VOL_DEFAULT',
+         'gates': 'Sector volatility priors used at inference', 'phase': 'P4'},
+        {'file': 'ml/walk_forward.py', 'line': '235-280', 'value': 'VIX>22, HYG-3mo<-3%, ^IRX>^TNX, SPY<MA200, SPY-3mo<-8%',
+         'gates': 'Hardcoded composite-regime thresholds', 'phase': 'P5'},
+        {'file': 'ml/log.py', 'line': 15, 'value': 'VIX > 25',
+         'gates': 'Legacy 2-state regime', 'phase': 'P5'},
+    ]
+
+    payload['summary'] = {
+        'json_constants_total': sum(
+            len(json.dumps(v)) // 8 for v in payload['configs'].values()  # rough proxy; HARDCODED_VALUES.md has the canonical count
+        ),
+        'see_also': '/api/config/heuristics/doc',
+    }
+    return jsonify(payload)
+
+
+@app.route('/heuristics')
+def heuristics_page():
+    """Phase 1 transparency UI — read-only view of every hand-picked constant."""
+    return render_template('heuristics.html')
+
+
 @app.route('/api/company/<int:company_id>', methods=['GET'])
 def get_company(company_id):
     conn = get_db_connection()

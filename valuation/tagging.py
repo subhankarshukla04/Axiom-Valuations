@@ -1,4 +1,4 @@
-from ml._config import TICKER_TAG_MAP, CYCLICAL_TAGS
+from valuation._config import TICKER_TAG_MAP, CYCLICAL_TAGS
 
 
 def get_sub_sector_tag(ticker: str, sector: str, industry: str) -> str:

@@ -1,10 +1,13 @@
+import logging
 from typing import Dict, Optional, Tuple
 
-from ml._config import (
+from valuation._config import (
     CYCLICAL_TAGS, SECULAR_DECLINE_TAGS,
     SUBSECTOR_MULT, SECTOR_CAPEX_NORM, CAPEX_NORM_DEFAULT,
     BLEND_WEIGHTS,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def smart_ebitda(ebitda_history: list, tag: str) -> Tuple[float, str]:
@@ -39,16 +42,48 @@ def normalize_capex(actual_pct: float, tag: str) -> float:
     return min(actual_pct, norm)
 
 
-def get_multiples(tag: str, company_growth: float) -> Tuple[Optional[float], Optional[float]]:
+def get_multiples(
+    tag: str,
+    company_growth: float,
+    ticker: Optional[str] = None,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Return (EV/EBITDA, P/E) multiples for a company.
+
+    Phase 2: when `ticker` is supplied and `AXIOM_USE_PEER_COMPS` is not '0',
+    the live SEC-EDGAR-peer + yfinance + Bayesian-shrinkage path is tried
+    first. The hand-curated `subsector_multiples.json` table is now used as
+    the *prior* fed into the shrinkage, plus as the fallback when the live
+    path fails.
+
+    The (12.0, 20.0) default for unknown sub-sector tags is unchanged — that
+    branch will go away when Phase 2 finishes covering all 54 tags.
+    """
     entry = SUBSECTOR_MULT.get(tag)
     if not entry:
         return 12.0, 20.0
 
     base_ev, base_pe, sector_median_g = entry
 
+    # Banks / REITs / insurance — sector tag has null base multiples and is
+    # routed through `valuation.alt_models.run_alternative_model` instead.
     if base_ev is None:
         return None, None
 
+    # ── Phase 2: live peer comps (with shrinkage to JSON sector median) ─────
+    if ticker:
+        try:
+            from valuation.peer_comps import get_peer_shrunk_multiples
+            ev_live, pe_live, trace = get_peer_shrunk_multiples(
+                ticker, base_ev, base_pe, company_growth, sector_median_g,
+            )
+            if ev_live is not None and pe_live is not None:
+                logger.debug('peer-comp ok %s: %s', ticker, trace)
+                return ev_live, pe_live
+            logger.debug('peer-comp partial/skip %s: %s', ticker, trace.get('peer_comp_status'))
+        except Exception as e:
+            logger.debug('peer-comp failed for %s: %s', ticker, e)
+
+    # ── Fallback: legacy PEG-style adjustment on JSON multiples ─────────────
     if sector_median_g and sector_median_g > 0 and company_growth and company_growth > 0:
         adj = (company_growth / sector_median_g) ** 0.4
         adj = max(0.5, min(adj, 1.5))

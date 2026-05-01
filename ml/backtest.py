@@ -3,8 +3,8 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from ml._config import TICKER_TAG_MAP, BLEND_WEIGHTS
-from ml.tagging import get_sub_sector_tag, classify_company
+from valuation._config import TICKER_TAG_MAP, BLEND_WEIGHTS
+from valuation.tagging import get_sub_sector_tag, classify_company
 from ml.log import PREDICTION_LOG_PATH
 
 logger = logging.getLogger(__name__)

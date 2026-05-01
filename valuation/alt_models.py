@@ -1,6 +1,6 @@
 from typing import Optional
 
-from ml._config import SECTOR_PB, TICKER_PB, SECTOR_PFFO, TICKER_PFFO
+from valuation._config import SECTOR_PB, TICKER_PB, SECTOR_PFFO, TICKER_PFFO
 
 
 def bank_model(book_value: float, shares: float, tag: str, ticker: str = '') -> Optional[float]:

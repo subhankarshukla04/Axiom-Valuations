@@ -237,7 +237,7 @@ def _ml_correction(ticker: str, tag: str, regime: str,
 
 def snapshot() -> int:
     """Fetch current market state and log one record per ticker. Returns n written."""
-    from ml._config import TICKER_TAG_MAP
+    from valuation._config import TICKER_TAG_MAP
 
     tickers = sorted(TICKER_TAG_MAP.keys())
     today   = date.today().isoformat()
@@ -581,7 +581,7 @@ def backfill_snapshots(n_weekdays: int = 10) -> int:
     """
     import yfinance as yf
     import pandas as pd
-    from ml._config import TICKER_TAG_MAP
+    from valuation._config import TICKER_TAG_MAP
     from ml.walk_forward import _composite_regime
 
     tickers = sorted(TICKER_TAG_MAP.keys())
