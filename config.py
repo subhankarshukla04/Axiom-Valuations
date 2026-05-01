@@ -142,7 +142,7 @@ class ProductionConfig(Config):
     DEBUG = False
     TESTING = False
     SESSION_COOKIE_SECURE = True
-    RATELIMIT_STORAGE_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    RATELIMIT_STORAGE_URL = os.environ.get('REDIS_URL', 'memory://')
 
 
 class TestingConfig(Config):
