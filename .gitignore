@@ -1,0 +1,51 @@
+# macOS
+.DS_Store
+.AppleDouble
+
+# Claude Code internals
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Data files (generated at runtime)
+*.jsonl
+*.pkl
+*.csv
+
+# Exports
+exports/
+
+# Misc
+*.swp
+*.swo
+valuations.db
+docs/superpowers/
+
+# Node / Next.js
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
