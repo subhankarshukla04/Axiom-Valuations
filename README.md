@@ -1,28 +1,35 @@
 # Axiom
 
-A fundamental research tool that combines multiples-based valuation, DCF, and
-analyst consensus, with a small machine-learning correction layer trained on
-prior prediction errors. Add any US stock ticker, get a fair-value estimate.
+An equity research tool built around one principle: every assumption should
+be legible before the headline is trusted.
 
-> **What this is — and isn't.**
-> Axiom is a research aid, not a quantitative alpha system. The "fair value"
-> output combines (a) hand-curated sub-sector multiples and blend weights
-> stored in `valuation/config/*.json`, (b) a DCF engine with synthetic credit
-> spreads, and (c) a small GBM correction (`ml/calibrator.py`) trained on
-> ~1,650 prior predictions. Most of the output's variance comes from the
-> hand-curated tables, not the ML layer. Outputs should be treated as one
-> input to investment decisions, not a forecast.
+Combines multiples-based valuation, DCF, and analyst consensus with a small
+machine-learning correction layer trained on prior prediction errors. Every
+numeric assumption is either a peer-comp computation or an entry in the
+`HARDCODED_VALUES.md` inventory with a stated phase-out plan. The intended
+user is an analyst who wants to read each assumption before relying on the
+output.
+
+> **What this is, and what it isn't.**
+> Axiom is a research aid, not a quantitative alpha system and not a
+> regulated valuation product. The headline value combines (a) hand-curated
+> sub-sector multiples and blend weights stored in `valuation/config/*.json`,
+> (b) a DCF engine using Damodaran-style synthetic credit spreads, and
+> (c) a small GBM correction (`ml/calibrator.py`) trained on ~1,650 prior
+> predictions. Most of the output's variance comes from the hand-curated
+> tables, not the ML layer. Outputs should be read as one input among
+> several, not as a forecast or a recommendation.
 >
-> See `HARDCODED_VALUES.md` for the complete inventory of magic numbers and
-> the phased plan to replace them with live peer-comp estimates.
+> See `HARDCODED_VALUES.md` for the full inventory of hand-set constants
+> and the phased plan to replace them with live peer-comp estimates.
 
-## What It Does
+## What it does
 
-1. **Add a ticker** — Enter AAPL, MSFT, NVDA, whatever. The app pulls financials from Yahoo Finance automatically.
-2. **Run valuation** — One click runs a 10-year DCF model with comparable company analysis.
-3. **See the result** — Fair-value-per-share with a **bear / base / bull range** (Phase 4: WACC ±100bp, terminal growth ±100bp, growth-Y1 ±25%), upside/downside to current price, and an investment signal.
+1. **Add a ticker.** Enter any US-listed equity. The app pulls financials from Yahoo Finance.
+2. **Run valuation.** One click runs a 10-year DCF alongside a comparable-company analysis.
+3. **See the result.** Per-share value with a **bear / base / bull range** (Phase 4 driver-based perturbation: WACC ±100bp, terminal growth ±100bp, Y1 growth ±25%), upside/downside to current price, and a directional read.
 
-That's it. No account required, no API keys for basic use. Just valuations.
+No account or paid data feed required.
 
 ## Codebase layout (Phase 1)
 
@@ -78,7 +85,7 @@ For cost of debt, we use Damodaran's synthetic credit rating approach instead of
 | > 0.8 | B | 4.00% |
 | < 0.8 | CCC/D | 7-15% |
 
-This means a company with strong interest coverage gets a lower cost of debt automatically — no manual assumptions.
+This means a company with strong interest coverage gets a lower cost of debt automatically, without a hand-set spread assumption.
 
 **Terminal Value**
 
@@ -172,9 +179,23 @@ This catches systematic biases the rule-based adjustments miss.
 
 ---
 
+## Audit trail and discipline
+
+Built so an analyst can answer "where did this number come from" for any input, and a reviewer can see what has been changed and by whom.
+
+**Assumption-change log.** Every input edit logs field, old value, new value, user, timestamp, change reason, and a materiality flag that auto-triggers on any numeric move greater than 10%. Filterable by date, by user, by material-only. Supports rollback. The workpaper trail lives inside the model, not next to it. (`audit_service.py`)
+
+**Constants inventory.** Every hand-set constant is documented in `HARDCODED_VALUES.md` with file path, line number, what it gates, and which phase replaces it through peer-implied calibration, backtest deltas, or panel regression. About 600 constants today; most are scheduled for retirement.
+
+**Explicit exclusions.** ROE, ROIC, D/E, and Altman Z are not surfaced in the UI even when the data layer computes them. The yfinance inputs are not reliable enough to publish these without misleading the reader. The system refuses to display before it guesses.
+
+**Non-blending rule.** Comparable multiples sit next to the DCF as context, never folded into the headline. There is no silent re-weighting between methods. The headline value means what it says.
+
+---
+
 ## Blind Test Results
 
-We validated the model on 76 companies across all sectors. The test was blind — prices were hidden during model tuning.
+The model was validated on 76 companies across all sectors. The test was blind: prices were hidden during model tuning.
 
 | Metric | Result |
 |--------|--------|
@@ -235,14 +256,17 @@ python app.py
 
 ```
 app.py                    Flask app, API routes
-valuation_professional.py DCF engine, WACC calc, Monte Carlo
+valuation_engine.py       Calibration and alternative-model orchestration
+valuation_professional.py DCF detail (WACC, scenarios, ML hookup)
 valuation_service.py      Orchestration, DB persistence
-ml_engine.py              Sub-sector tagging, calibration
-ib_valuation_framework.py Industry multiples, classification
+audit_service.py          Assumption-change audit trail
+ib_valuation_framework.py Archetype classification and IB-style adjustments
 data_integrator.py        Yahoo Finance data fetch
 realtime_price_service.py Daily price updates
 config.py                 Environment config
 models.py                 Pydantic schemas
+valuation/                Tagging, peer comps, scenarios, alt models, config tables
+ml/                       Calibration, walk-forward trainer, backtest, monitor
 static/                   CSS, JavaScript
 templates/                HTML
 ```

@@ -1,8 +1,15 @@
-import { ArrowRight, ArrowUpRight, ChevronDown, Database, ExternalLink, Film, Github } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowRight, ArrowUpRight, ChevronDown, Database, ExternalLink, Film, Github, GitBranch, Layers, LineChart } from 'lucide-react'
+import { SiteHeader, SiteFooter } from './_components/SiteChrome'
 
 const GH_URL = 'https://github.com/subhankarshukla04/Axiom-Valuations'
-const LI_URL = 'https://www.linkedin.com/in/subhankarshukla/'
 const PORTFOLIO_URL = 'https://subhankarshukla.vercel.app'
+
+const DEEP_DIVES = [
+  { href: '/archetypes', icon: Layers, label: 'Archetypes', blurb: 'The 9-framework router and the boundary calls that decide which math a company gets.' },
+  { href: '/examples', icon: LineChart, label: 'Worked examples', blurb: 'GFL end to end: archetype decision to a bear / base / bull fair value, every number sourced.' },
+  { href: '/post-mortem', icon: GitBranch, label: 'Post-mortem', blurb: 'Why the ML correction layer got deleted, and the three pivots that made the number honest.' },
+]
 
 const PIPELINE = [
   { label: 'Yahoo Finance', sub: 'Fundamentals + price', kind: 'input' as const },
@@ -134,28 +141,7 @@ export default function Page() {
   return (
     <>
       {/* ─────────── HEADER ─────────── */}
-      <header
-        className="fixed top-0 left-0 right-0 z-50"
-        style={{ backdropFilter: 'blur(14px)', background: 'rgba(3,3,8,0.65)', borderBottom: '1px solid var(--border)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 lg:px-8 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ background: 'var(--accent)', color: '#000' }}>
-              <span className="font-display font-black text-sm">A</span>
-            </div>
-            <span className="font-display font-extrabold tracking-[0.18em] text-sm">AXIOM</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-8 text-sm" style={{ color: 'var(--t-med)' }}>
-            <a href="#walkthrough" className="hover:text-white transition-colors">Walkthrough</a>
-            <a href="#architecture" className="hover:text-white transition-colors">Architecture</a>
-            <a href="#methodology" className="hover:text-white transition-colors">Methodology</a>
-            <a href="#limits" className="hover:text-white transition-colors">Limits</a>
-            <a href={GH_URL} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <Github size={14} /> GitHub
-            </a>
-          </nav>
-        </div>
-      </header>
+      <SiteHeader />
 
       <main className="pt-14">
         {/* ─────────── HERO ─────────── */}
@@ -502,6 +488,36 @@ export default function Page() {
           </div>
         </section>
 
+        {/* ─────────── GO DEEPER ─────────── */}
+        <section className="px-6 lg:px-8 py-24" style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="max-w-6xl mx-auto">
+            <p className="label mb-4" style={{ color: 'var(--accent)' }}>Go deeper</p>
+            <h2 className="font-display font-bold tracking-[-0.025em] mb-12" style={{ fontSize: 'clamp(2rem, 5vw, 3.5rem)' }}>
+              The parts worth reading.
+            </h2>
+            <div className="grid md:grid-cols-3 gap-4">
+              {DEEP_DIVES.map((d) => {
+                const Icon = d.icon
+                return (
+                  <Link
+                    key={d.href}
+                    href={d.href}
+                    className="card p-6 group flex flex-col transition-colors"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <Icon size={22} style={{ color: 'var(--accent)' }} className="mb-4" />
+                    <h3 className="text-lg font-semibold mb-2 tracking-[-0.01em] flex items-center gap-1.5" style={{ color: 'var(--t-hi)' }}>
+                      {d.label}
+                      <ArrowRight size={15} className="opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" style={{ color: 'var(--accent)' }} />
+                    </h3>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--t-med)' }}>{d.blurb}</p>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+
         {/* ─────────── CTA ─────────── */}
         <section className="px-6 lg:px-8 py-32" style={{ borderTop: '1px solid var(--border)' }}>
           <div className="max-w-4xl mx-auto text-center">
@@ -536,18 +552,7 @@ export default function Page() {
         </section>
       </main>
 
-      <footer className="px-6 lg:px-8 py-10" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <p className="font-mono text-xs" style={{ color: 'var(--t-low)' }}>
-            AXIOM &middot; Built by Subhankar Shukla &middot; {new Date().getFullYear()}
-          </p>
-          <div className="flex gap-6 text-xs" style={{ color: 'var(--t-low)' }}>
-            <a href={GH_URL} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">GitHub</a>
-            <a href={LI_URL} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">LinkedIn</a>
-            <a href={PORTFOLIO_URL} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Portfolio</a>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   )
 }
