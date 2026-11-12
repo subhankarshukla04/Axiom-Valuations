@@ -3,7 +3,7 @@ import { ArrowLeft, Github } from 'lucide-react'
 
 export const GH_URL = 'https://github.com/subhankarshukla04/Axiom-Valuations'
 export const LI_URL = 'https://www.linkedin.com/in/subhankarshukla/'
-export const PORTFOLIO_URL = 'https://subhankarshukla.vercel.app'
+export const PORTFOLIO_URL = 'https://subhankarshukla.com'
 
 const NAV = [
   { label: 'Archetypes', href: '/archetypes' },

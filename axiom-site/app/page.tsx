@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, ChevronDown, Database, ExternalLink, Film, Gi
 import { SiteHeader, SiteFooter } from './_components/SiteChrome'
 
 const GH_URL = 'https://github.com/subhankarshukla04/Axiom-Valuations'
-const PORTFOLIO_URL = 'https://subhankarshukla.vercel.app'
+const PORTFOLIO_URL = 'https://subhankarshukla.com'
 
 const DEEP_DIVES = [
   { href: '/archetypes', icon: Layers, label: 'Archetypes', blurb: 'The 9-framework router and the boundary calls that decide which math a company gets.' },
