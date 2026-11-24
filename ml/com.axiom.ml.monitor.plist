@@ -8,11 +8,11 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/subhankarshukla/Desktop/claude code/axiom/valuation_app/ml/autorun.sh</string>
+        <string>/path/to/Axiom-Valuations/ml/autorun.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/subhankarshukla/Desktop/claude code/axiom/valuation_app</string>
+    <string>/path/to/Axiom-Valuations</string>
 
     <!-- Run Mon-Fri at 5:00pm local time (after US market close) -->
     <key>StartCalendarInterval</key>
@@ -25,9 +25,9 @@
     </array>
 
     <key>StandardOutPath</key>
-    <string>/Users/subhankarshukla/Desktop/claude code/axiom/valuation_app/monitor_launchd.log</string>
+    <string>/path/to/Axiom-Valuations/monitor_launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/subhankarshukla/Desktop/claude code/axiom/valuation_app/monitor_launchd_err.log</string>
+    <string>/path/to/Axiom-Valuations/monitor_launchd_err.log</string>
 
     <key>RunAtLoad</key>
     <false/>

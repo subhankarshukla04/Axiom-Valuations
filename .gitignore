@@ -3,7 +3,7 @@
 .AppleDouble
 .LSOverride
 
-# Claude Code internals
+# local editor and tool config
 .claude/
 
 # Python
